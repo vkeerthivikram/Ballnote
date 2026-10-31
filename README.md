@@ -1,6 +1,6 @@
 # Ballnote
 
-An Android cricket scorer for casual turf matches. Record runs, wickets and extras, follow the chase, and pick up where you left off. All match data is stored on your phone.
+Ballnote keeps score for turf cricket matches on Android. Tap the outcome after each delivery, and the app updates the score and saves the match on your phone. It tracks team totals, not individual batting or bowling statistics.
 
 [Download APK](https://github.com/vkeerthivikram/Ballnote/releases/latest) · [Watch demo](https://github.com/user-attachments/assets/a3130143-ef43-4bdd-a125-e766d957c668) · [Report an issue](https://github.com/vkeerthivikram/Ballnote/issues)
 
@@ -11,56 +11,56 @@ An Android cricket scorer for casual turf matches. Record runs, wickets and extr
 
 ## Install
 
-Requires **Android 8.0 or later**. Download the APK from [Releases](https://github.com/vkeerthivikram/Ballnote/releases/latest), open it on your phone, and allow installation from that source if Android prompts you.
+Requires Android 8.0 or later. Open the downloaded APK on your phone. If Android prompts you, allow installation from the app you used to open it.
 
-## Scoring
+## Scoring a match
 
-- Runs, wickets, wides and no-balls take one tap. Use **More** for additional runs or runs combined with a wicket.
-- Set the overs, wicket limit and extras rule before starting. Defaults are six overs, five wickets, and extras bowled again.
-- Wides and no-balls add one run. Choose whether they count as a ball, are bowled again, or are bowled again only in the final scheduled over.
-- Chase targets, remaining balls and winning margins update automatically.
-- Undo the last delivery, or edit any delivery in either innings. Corrections show a preview before applying changes.
-- Resume saved matches, reuse teams, view team records, and share a result image.
-- Use light, dark or system appearance, with optional wallpaper colours on Android 12+.
+Choose the overs, wicket limit and extras rule before starting. The defaults are six overs, five wickets, and wides and no-balls bowled again for one extra run. You can instead count extras as balls, or count them until the final scheduled over and bowl them again in that over.
 
-Scoring tracks team totals; individual batting and bowling statistics are outside the app's scope.
+Tap a run total, wicket, wide or no-ball to record a delivery. Use **More** for additional runs or runs combined with a wicket. Ballnote calculates the chase target, remaining balls and winning margin.
 
-## Data and privacy
+Use **Undo last ball** to remove the latest delivery. You can also edit a delivery in either innings. The app previews corrections before you apply them.
 
-Ballnote works offline from first launch. It has no internet permission, accounts, advertising or analytics.
+Matches save as you score, so you can close the app and resume later. Save teams for future matches and review their records. You can share a match result as an image.
 
-Use **Settings → Export backup** to save teams and matches as JSON. Restore validates the file and asks for confirmation before replacing the current data. It does not merge backups or restore appearance preferences.
+The app supports light, dark and system appearance. On Android 12 or later, it can use colours from your wallpaper.
 
-Automatic Android cloud backup and device transfer are disabled. Export a backup before uninstalling or changing phones. Sharing and exporting use Android's system picker, so you choose the destination.
+## Backups and privacy
 
-## Development
+Ballnote works offline, including on first launch. It has no internet permission, accounts, advertising or analytics.
 
-Built with Kotlin, Jetpack Compose, Material 3, Room and DataStore. The scoring engine is plain Kotlin; scores and team records are calculated from delivery history.
+In Settings, choose **Export backup** to save your teams and matches as JSON. Restore checks the file and asks for confirmation before replacing your current teams and matches. It does not merge data or restore appearance preferences.
 
-Open the project in Android Studio, or configure **JDK 21**, **Android SDK 36** and **Build-Tools 36.0.0** for command-line builds. Set `JAVA_HOME` and provide the SDK location through `ANDROID_HOME` or `local.properties`.
+Android cloud backup and device transfer are disabled, so export a backup before uninstalling or changing phones. Android's file picker and share sheet let you choose where to save or send exported data.
+
+## Build and test
+
+Open the project in Android Studio, or build from the command line with JDK 21, Android SDK 36 and Build-Tools 36.0.0. Set `JAVA_HOME` and provide the SDK path through `ANDROID_HOME` or `local.properties`.
 
 ```sh
 ./gradlew assembleDebug
+./gradlew testDebugUnitTest lintDebug
 ```
 
-On Windows, use `gradlew.bat` in place of `./gradlew`. The APK is written to `app/build/outputs/apk/debug/app-debug.apk`.
+On Windows, use `.\gradlew.bat` instead of `./gradlew`. The debug APK is at `app/build/outputs/apk/debug/app-debug.apk`.
 
-### Tests
+To run device tests, connect an emulator or test device with a clean Ballnote installation. The tests create sample matches.
 
 ```sh
-./gradlew testDebugUnitTest lintDebug
 ./gradlew connectedDebugAndroidTest
 ```
 
-The second command needs a connected emulator or test device with a clean Ballnote installation. Device tests create sample matches. Unit tests cover scoring rules, corrections, results and backup validation; device tests cover scoring, storage and result-image generation.
+Unit tests cover scoring rules, corrections, results and backup validation. Device tests cover scoring, storage and result-image generation.
 
-### Source layout
+## Code
 
-- `app/src/main/java/com/ballnote/app/domain/` — scoring rules and match calculations.
-- `app/src/main/java/com/ballnote/app/data/` — Room storage, preferences and backups.
-- `app/src/main/java/com/ballnote/app/ui/` — Compose screens.
-- `app/schemas/` — versioned Room schemas for database migrations.
+The app uses Kotlin, Jetpack Compose and Material 3. Room stores match data, and DataStore stores preferences. The scoring engine calculates scores and team records from delivery history.
+
+- [Scoring.kt](app/src/main/java/com/ballnote/app/domain/Scoring.kt) contains the scoring engine, which is plain Kotlin.
+- [Storage.kt](app/src/main/java/com/ballnote/app/data/Storage.kt) handles the database, preferences and backups.
+- [Ballnote.kt](app/src/main/java/com/ballnote/app/ui/Ballnote.kt) defines the Compose screens.
+- [app/schemas](app/schemas/) contains versioned Room schemas for database migrations.
 
 ## Releases
 
-The [Release APK workflow](https://github.com/vkeerthivikram/Ballnote/actions/workflows/release.yml) builds and publishes signed APKs when run manually. See [docs/releasing.md](docs/releasing.md) for signing, versioning and upgrade instructions.
+Run the [Release APK workflow](https://github.com/vkeerthivikram/Ballnote/actions/workflows/release.yml) to build and publish a signed APK. It only runs manually. See [docs/releasing.md](docs/releasing.md) for signing, versioning and upgrade instructions.
