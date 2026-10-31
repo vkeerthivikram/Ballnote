@@ -21,7 +21,7 @@ Tap a run total, wicket, wide or no-ball to record a delivery. Use **More** for 
 
 Use **Undo last ball** to remove the latest delivery. You can also edit a delivery in either innings. The app previews corrections before you apply them.
 
-Matches save as you score, so you can close the app and resume later. Save teams for future matches and review their records. You can share a match result as an image.
+Matches save as you score, so you can close the app and resume later. Team names belong to each match. Use Rematch to copy the names and rules, then change them for the next game. You can share a match result as an image.
 
 The app supports light, dark and system appearance. On Android 12 or later, it can use colours from your wallpaper.
 
@@ -29,7 +29,7 @@ The app supports light, dark and system appearance. On Android 12 or later, it c
 
 Ballnote works offline, including on first launch. It has no internet permission, accounts, advertising or analytics.
 
-In Settings, choose **Export backup** to save your teams and matches as JSON. Restore checks the file and asks for confirmation before replacing your current teams and matches. It does not merge data or restore appearance preferences.
+In Settings, choose **Export backup** to save your matches as JSON. Restore checks the file and asks for confirmation before replacing your current matches. It does not merge data or restore appearance preferences.
 
 Android cloud backup and device transfer are disabled, so export a backup before uninstalling or changing phones. Android's file picker and share sheet let you choose where to save or send exported data.
 
@@ -54,7 +54,7 @@ Unit tests cover scoring rules, corrections, results and backup validation. Devi
 
 ## Code
 
-The app uses Kotlin, Jetpack Compose and Material 3. Room stores match data, and DataStore stores preferences. The scoring engine calculates scores and team records from delivery history.
+The app uses Kotlin, Jetpack Compose and Material 3. Room stores match data, and DataStore stores preferences. The scoring engine calculates scores and match results from delivery history.
 
 - [Scoring.kt](app/src/main/java/com/ballnote/app/domain/Scoring.kt) contains the scoring engine, which is plain Kotlin.
 - [Storage.kt](app/src/main/java/com/ballnote/app/data/Storage.kt) handles the database, preferences and backups.

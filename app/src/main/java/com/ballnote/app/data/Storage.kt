@@ -61,7 +61,16 @@ class Repository(context: Context, databaseName: String = "ballnote.db") {
     private val dao = db.dao()
     suspend fun snapshot(): Library = db.withTransaction { Library(dao.readTeams().map { json.decodeFromString<Team>(it.payload) }, dao.readGames().map { json.decodeFromString<Game>(it.payload) }, dao.readBalls().map { json.decodeFromString<Delivery>(it.payload) }) }
     val library = db.invalidationTracker.createFlow("teams", "matches", "deliveries").map { snapshot() }
-    suspend fun team(t: Team) { require(t.name.isNotBlank() && t.name.length <= 40); dao.team(TeamRow(t.id, json.encodeToString(t))) }
+    private suspend fun team(t: Team) { require(t.name.isNotBlank() && t.name.length <= 40); dao.team(TeamRow(t.id, json.encodeToString(t))) }
+    suspend fun create(g: Game) = db.withTransaction {
+        g.rules.validate()
+        require(g.teamA.isNotBlank() && g.teamB.isNotBlank() && g.teamA != g.teamB) { "Match sides must have different IDs." }
+        require(g.nameA.isNotBlank() && g.nameB.isNotBlank() && g.nameA.length <= 40 && g.nameB.length <= 40 && !g.nameA.equals(g.nameB, true)) { "Enter two different team names, up to 40 characters each." }
+        // Retrying a committed creation must not replace deliveries recorded since then.
+        if (dao.readGames().any { it.id == g.id }) return@withTransaction
+        team(Team(g.teamA, g.nameA)); team(Team(g.teamB, g.nameB))
+        save(g, emptyList())
+    }
     suspend fun save(g: Game, balls: List<Delivery>) = db.withTransaction {
         dao.game(MatchRow(g.id, json.encodeToString(g)))
         dao.innings(listOf(InningsRow(g.id, 1, g.firstClosed || g.chaseStarted)) + if (g.chaseStarted) listOf(InningsRow(g.id, 2, Scoring.score(g, balls).second.ended)) else emptyList())

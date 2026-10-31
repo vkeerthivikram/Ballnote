@@ -40,12 +40,12 @@ class ScoringTest {
         val p = Scoring.preview(g, original, second.id, second.copy(runs = 6))
         assertEquals(3, original.size); assertEquals(1, p.after.excluded.size); assertEquals(2, p.deliveries.size); assertEquals(6, p.after.second.runs)
     }
-    @Test fun correctionCanReopenCompletedMatchAndRecordsFollow() {
+    @Test fun correctionCanReopenCompletedMatch() {
         val g = game().copy(chaseStarted = true, firstClosed = true)
         val d = ball(g, 0, 6, innings = 2); val ds = listOf(ball(g, 0, 5), d)
-        val before = Scoring.score(g, ds); assertEquals(1, Scoring.record("b", listOf(g to before)).won)
+        val before = Scoring.score(g, ds); assertEquals(Status.COMPLETE, before.status); assertEquals("b", before.winner)
         val p = Scoring.preview(g, ds, d.id, d.copy(runs = 1))
-        assertEquals(Status.CHASE, p.after.status); assertEquals(0, Scoring.record("b", listOf(g to p.after)).played)
+        assertEquals(Status.CHASE, p.after.status); assertNull(p.after.winner)
     }
     @Test fun changedTargetAndKeptFirstBoundary() {
         val g = game(MatchRules(1, 1)).copy(chaseStarted = true, firstClosed = true)
@@ -60,6 +60,13 @@ class ScoringTest {
         assertThrows(IllegalArgumentException::class.java) { b.copy(teams = emptyList()).validate() }
         assertThrows(IllegalArgumentException::class.java) { b.copy(deliveries = b.deliveries + b.deliveries).validate() }
     }
-    @Test fun renameDoesNotAlterHistoricNameOrRecord() { val g = game().copy(abandoned = true); val t = Team("a", "New name"); assertEquals("First", g.nameA); assertEquals(1, Scoring.record(t.id, listOf(g to Scoring.score(g, emptyList()))).noResult) }
+    @Test fun legacyBackupPreservesHistoricalMatchNames() {
+        val g = game()
+        val backup = Backup(teams = listOf(Team("a", "Renamed team", archived = true), Team("b", "Other team")), matches = listOf(g), deliveries = emptyList())
+        val decoded = json.decodeFromString<Backup>(json.encodeToString(backup))
+        decoded.validate()
+        assertEquals("First", decoded.matches.single().nameA)
+        assertEquals("Second", decoded.matches.single().nameB)
+    }
     @Test fun invalidRulesAndRunsAreRejected() { assertThrows(IllegalArgumentException::class.java) { MatchRules(0).validate() }; val g = game(); assertThrows(IllegalArgumentException::class.java) { Scoring.score(g, listOf(ball(g, 0, -1))) } }
 }

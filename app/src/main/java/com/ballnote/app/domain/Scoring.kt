@@ -9,6 +9,7 @@ fun newId(): String = UUID.randomUUID().toString()
 @Serializable data class MatchRules(val overs: Int = 6, val wickets: Int = 5, val extras: ExtrasMode = ExtrasMode.REBOWL) {
     fun validate() { require(overs in 1..50 && wickets in 1..20) { "Use 1–50 overs and 1–20 wickets." } }
 }
+// Retained for v1 database and backup compatibility. New matches use independent side IDs.
 @Serializable data class Team(val id: String = newId(), val name: String, val archived: Boolean = false)
 @Serializable data class Game(val id: String = newId(), val teamA: String, val teamB: String, val nameA: String, val nameB: String, val rules: MatchRules = MatchRules(), val created: Long = System.currentTimeMillis(), val opened: Long = created, val firstClosed: Boolean = false, val chaseStarted: Boolean = false, val abandoned: Boolean = false)
 @Serializable data class Delivery(val id: String = newId(), val matchId: String, val innings: Int, val sequence: Int, val kind: Kind = Kind.NORMAL, val runs: Int = 0, val wicket: Boolean = false) {
@@ -26,8 +27,6 @@ data class Score(val first: InningsScore, val second: InningsScore, val status: 
     val excluded get() = first.excluded + second.excluded
 }
 data class Correction(val game: Game, val deliveries: List<Delivery>, val before: Score, val after: Score)
-data class Record(val played: Int, val won: Int, val lost: Int, val tied: Int, val noResult: Int)
-
 object Scoring {
     fun innings(deliveries: List<Delivery>, rules: MatchRules, target: Int? = null, closed: Boolean = false): InningsScore {
         rules.validate()
@@ -64,12 +63,5 @@ object Scoring {
         val after = score(g, candidate)
         val excluded = after.excluded.map { it.id }.toSet()
         return Correction(g, candidate.filterNot { it.id in excluded }, score(g, ds), after)
-    }
-    fun record(teamId: String, games: List<Pair<Game, Score>>): Record {
-        val done = games.filter { (g, s) -> (g.teamA == teamId || g.teamB == teamId) && s.finished }
-        val won = done.count { it.second.winner == teamId }
-        val lost = done.count { it.second.winner != null && it.second.winner != teamId }
-        val tied = done.count { it.second.status == Status.COMPLETE && it.second.winner == null }
-        return Record(done.size, won, lost, tied, done.size - won - lost - tied)
     }
 }

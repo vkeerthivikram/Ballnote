@@ -24,6 +24,11 @@ class ScoringFlowTest {
         File(rule.activity.filesDir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
     @Test fun playMatchAndCorrectWinningDelivery() {
+        rule.onNodeWithText("Teams").assertDoesNotExist()
+        rule.onNodeWithText("Settings").performClick()
+        rule.onNodeWithText("Appearance").assertExists()
+        rule.onNodeWithText("Teams").assertDoesNotExist()
+        rule.onNodeWithText("Matches").performClick()
         rule.onNodeWithText("New match").performClick()
         rule.onNodeWithText("Batting first").performTextInput("Weekend XI")
         rule.onNodeWithText("Batting second").performTextInput("Turf Titans")
@@ -54,6 +59,16 @@ class ScoringFlowTest {
         rule.onNodeWithText("Apply correction").performClick()
         rule.waitUntil(10000) { rule.onAllNodesWithText("4 needed from 5 balls").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Rematch").performScrollTo().performClick()
-        rule.onNodeWithText("Batting first").assertExists()
+        rule.onNodeWithText("Batting first").assertTextContains("Weekend XI")
+        rule.onNodeWithText("Batting second").assertTextContains("Turf Titans")
+        rule.onAllNodesWithText("Weekend XI").assertCountEquals(1)
+        rule.onNodeWithText("Batting first").performTextReplacement("Evening XI")
+        rule.onNodeWithText("Start match").performScrollTo().performClick()
+        rule.waitUntil(15000) { rule.onAllNodesWithContentDescription("4 runs").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("Evening XI").assertExists()
+        rule.onNodeWithContentDescription("Back to matches").performClick()
+        rule.onNodeWithText("Weekend XI vs Turf Titans").assertExists()
+        rule.onNodeWithText("Evening XI vs Turf Titans").assertExists()
+        rule.onNodeWithText("Teams").assertDoesNotExist()
     }
 }

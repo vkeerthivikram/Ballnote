@@ -74,13 +74,11 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
     val error by vm.error.collectAsStateWithLifecycle()
     var route by rememberSaveable { mutableStateOf("Matches") }
     var gameId by rememberSaveable { mutableStateOf<String?>(null) }
-    var teamId by rememberSaveable { mutableStateOf<String?>(null) }
     var rematchId by rememberSaveable { mutableStateOf<String?>(null) }
     var editor by remember { mutableStateOf<Delivery?>(null) }
     var correction by remember { mutableStateOf<Correction?>(null) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var pendingBackup by remember { mutableStateOf<Backup?>(null) }
-    var teamEditor by remember { mutableStateOf<Team?>(null) }
     var fileMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope(); val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -90,6 +88,7 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
     val ds = if (g != null) l.deliveries(g.id) else emptyList()
     val s = if (g != null) l.score(g) else null
     LaunchedEffect(selected) { selected?.let { gameId = it; route = "Live" } }
+    LaunchedEffect(route) { if (route !in listOf("Matches", "Settings", "New match", "Live", "Match details")) route = "Matches" }
     LaunchedEffect(error) { if (error != null && snackbar.showSnackbar(error!!, "Retry", duration = SnackbarDuration.Indefinite) == SnackbarResult.ActionPerformed) vm.retry() }
     LaunchedEffect(fileMessage) { fileMessage?.let { snackbar.showSnackbar(it); fileMessage = null } }
     val view = LocalView.current
@@ -104,13 +103,13 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
         } }.onSuccess { pendingBackup = it }.onFailure { fileMessage = "Cannot restore: ${it.message}" }
     } }
     fun back() { route = "Matches"; vm.selected.value = null }
-    BackHandler(route !in listOf("Matches", "Teams", "Settings")) { back() }
-    val root = route in listOf("Matches", "Teams", "Settings")
+    BackHandler(route !in listOf("Matches", "Settings")) { back() }
+    val root = route in listOf("Matches", "Settings")
     val pageScroll = remember(route, gameId) { ScrollState(0) }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = { TopAppBar(title = { Text(if (route == "Live") "Ballnote" else route, fontWeight = FontWeight.Bold) }, navigationIcon = { if (!root) IconButton(onClick = { back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to matches") } }, actions = { if (route == "Live" && g != null) IconButton(onClick = { route = "Match details" }) { Icon(Icons.AutoMirrored.Outlined.List, "Match details and corrections") } }) },
-        bottomBar = { if (root) NavigationBar { listOf("Matches", "Teams", "Settings").forEach { label -> NavigationBarItem(selected = route == label, onClick = { route = label }, icon = { Icon(when(label) { "Teams" -> Icons.Outlined.Person; "Settings" -> Icons.Outlined.Settings; else -> Icons.Outlined.DateRange }, label) }, label = { Text(label) }) } } }
+        bottomBar = { if (root) NavigationBar { listOf("Matches", "Settings").forEach { label -> NavigationBarItem(selected = route == label, onClick = { route = label }, icon = { Icon(if (label == "Settings") Icons.Outlined.Settings else Icons.Outlined.DateRange, label) }, label = { Text(label) }) } } }
     ) { padding ->
         if (l == null) { Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { if (error == null) CircularProgressIndicator() else Text("Could not open saved data. Use Retry below.") }; return@Scaffold }
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(pageScroll).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(if (route == "Live") 8.dp else 16.dp)) {
@@ -120,7 +119,7 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
                     if (l.games.isEmpty()) Empty("Your next game starts here.", "Choose two teams, set your turf rules, and tap each ball. Everything stays on this phone.")
                     l.games.sortedByDescending { it.created }.forEach { game -> MatchCard(game, l.score(game)) { gameId = game.id; if (l.score(game).finished) route = "Match details" else vm.open(game) } }
                 }
-                "New match" -> Setup(l, rematchId?.let { id -> l.games.find { it.id == id } }, prefs.rules, busy) { a, b, rules -> vm.create(a, b, rules) }
+                "New match" -> Setup(rematchId?.let { id -> l.games.find { it.id == id } }, prefs.rules, busy) { a, b, rules -> vm.create(a, b, rules) }
                 "Live" -> if (g != null && s != null) {
                     LiveScore(g, s, busy, error != null, record = { kind, runs, wicket -> if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.record(g.id, kind, runs, wicket) }, more = { editor = Delivery(matchId = g.id, innings = if (g.chaseStarted) 2 else 1, sequence = -1) }, undo = { vm.undo(g.id) }, chase = { vm.chase(g.id) }, details = { route = "Match details" }, undoEnabled = ds.isNotEmpty() || g.firstClosed || g.chaseStarted)
                 }
@@ -148,21 +147,6 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
                         TextButton(onClick = { confirm = "Abandon match" }) { Text("Abandon match", color = MaterialTheme.colorScheme.error) }
                     }
                 }
-                "Teams" -> {
-                    Button(onClick = { teamEditor = Team(name = "") }) { Icon(Icons.Outlined.Add, null); Text(" Add team") }
-                    if (l.teams.isEmpty()) Empty("Your teams, remembered.", "Add a team here or create one when starting a match.")
-                    val scored = l.games.map { it to l.score(it) }
-                    l.teams.sortedBy { it.name.lowercase() }.forEach { t ->
-                        val r = Scoring.record(t.id, scored)
-                        OutlinedCard(onClick = { teamId = t.id; route = "Team details" }, modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp)) { Text(t.name + if (t.archived) " · archived" else "", style = MaterialTheme.typography.titleLarge); Text("${r.played} played · ${r.won} won · ${r.lost} lost"); Text("${r.tied} tied · ${r.noResult} no result") } }
-                    }
-                }
-                "Team details" -> l.teams.find { it.id == teamId }?.let { t ->
-                    Text(t.name, style = MaterialTheme.typography.headlineLarge)
-                    Row { TextButton(onClick = { teamEditor = t }) { Text("Rename") }; TextButton(onClick = { vm.team(t.copy(archived = !t.archived)) }) { Text(if (t.archived) "Unarchive" else "Archive") } }
-                    Text("Match history", style = MaterialTheme.typography.titleLarge)
-                    l.games.filter { it.teamA == t.id || it.teamB == t.id }.sortedByDescending { it.created }.forEach { match -> MatchCard(match, l.score(match)) { gameId = match.id; route = "Match details" } }
-                }
                 "Settings" -> {
                     Text("Appearance", style = MaterialTheme.typography.titleLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { listOf("System", "Light", "Dark").forEach { choice -> FilterChip(selected = prefs.theme == choice, onClick = { vm.preferences(prefs.copy(theme = choice)) }, label = { Text(choice) }) } }
@@ -189,34 +173,30 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
         Text(c.after.result)
         if (c.after.first.early && c.game.chaseStarted) Text("The first innings stays closed at its existing boundary and will be marked as ended early.")
         if (c.after.excluded.isNotEmpty()) Text("${c.after.excluded.size} later deliveries will be removed: ${c.after.excluded.joinToString { it.label }}", color = MaterialTheme.colorScheme.error)
-        if (c.before.finished && !c.after.finished) Text("This match will reopen. Team records will update.")
+        if (c.before.finished && !c.after.finished) Text("This match will reopen.")
     } }, confirmButton = { TextButton(onClick = { vm.correction(c); correction = null }, enabled = !busy) { Text("Apply correction") } }, dismissButton = { TextButton(onClick = { correction = null }) { Text("Cancel") } }) }
     confirm?.let { title -> AlertDialog(onDismissRequest = { confirm = null }, title = { Text(title + "?") }, text = { Text(if (title == "Abandon match") "Keep all recorded deliveries and mark this match as No result." else "Close the first innings at the current score and set the chase target.") }, confirmButton = { TextButton(onClick = { g?.let { if (title == "Abandon match") vm.abandon(it.id) else vm.endFirst(it.id) }; confirm = null }) { Text("Confirm") } }, dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } }) }
-    pendingBackup?.let { b -> AlertDialog(onDismissRequest = { pendingBackup = null }, title = { Text("Replace saved data?") }, text = { Text("Restore ${b.teams.size} teams, ${b.matches.size} matches and ${b.deliveries.size} deliveries. This replaces all current teams and matches. Export a backup first if you want to keep them.") }, confirmButton = { TextButton(onClick = { vm.restore(b); pendingBackup = null; route = "Matches" }, enabled = !busy) { Text("Replace and restore") } }, dismissButton = { TextButton(onClick = { pendingBackup = null }) { Text("Cancel") } }) }
-    teamEditor?.let { t -> var name by remember(t.id) { mutableStateOf(t.name) }; AlertDialog(onDismissRequest = { teamEditor = null }, title = { Text(if (t.name.isBlank()) "New team" else "Rename team") }, text = { OutlinedTextField(value = name, onValueChange = { if (it.length <= 40) name = it }, label = { Text("Team name") }, singleLine = true) }, confirmButton = { TextButton(onClick = { vm.team(t.copy(name = name.trim())); teamEditor = null }, enabled = name.isNotBlank() && l?.teams?.none { it.id != t.id && it.name.equals(name.trim(), true) } != false) { Text("Save") } }, dismissButton = { TextButton(onClick = { teamEditor = null }) { Text("Cancel") } }) }
+    pendingBackup?.let { b -> AlertDialog(onDismissRequest = { pendingBackup = null }, title = { Text("Replace saved data?") }, text = { Text("Restore ${b.matches.size} matches and ${b.deliveries.size} deliveries. This replaces all current matches. Export a backup first if you want to keep them.") }, confirmButton = { TextButton(onClick = { vm.restore(b); pendingBackup = null; route = "Matches" }, enabled = !busy) { Text("Replace and restore") } }, dismissButton = { TextButton(onClick = { pendingBackup = null }) { Text("Cancel") } }) }
 }
 
 @Composable private fun Empty(title: String, body: String) { Column(Modifier.padding(vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(title, style = MaterialTheme.typography.headlineMedium); Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 @Composable private fun MatchCard(g: Game, s: Score, open: () -> Unit) { OutlinedCard(onClick = open, modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("${g.nameA} vs ${g.nameB}", style = MaterialTheme.typography.titleLarge); Text("${date(g.created)} · ${g.rules.overs} overs", style = MaterialTheme.typography.bodySmall); Text("${s.first.runs}/${s.first.wickets} (${s.first.overs})" + if (g.chaseStarted) "  ·  ${s.second.runs}/${s.second.wickets} (${s.second.overs})" else ""); Text(s.result, color = MaterialTheme.colorScheme.primary) } } }
 @Composable private fun Toggle(title: String, subtitle: String, checked: Boolean, change: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(subtitle, style = MaterialTheme.typography.bodySmall) }; Switch(checked = checked, onCheckedChange = change, modifier = Modifier.semantics { contentDescription = title }) } }
 
-@Composable private fun Setup(l: Library, previous: Game?, defaults: MatchRules, busy: Boolean, create: (Team, Team, MatchRules) -> Unit) {
-    var a by rememberSaveable { mutableStateOf(previous?.let { g -> l.teams.find { it.id == g.teamA }?.name ?: g.nameA } ?: "") }
-    var b by rememberSaveable { mutableStateOf(previous?.let { g -> l.teams.find { it.id == g.teamB }?.name ?: g.nameB } ?: "") }
+@Composable private fun Setup(previous: Game?, defaults: MatchRules, busy: Boolean, create: (String, String, MatchRules) -> Unit) {
+    var a by rememberSaveable { mutableStateOf(previous?.nameA ?: "") }
+    var b by rememberSaveable { mutableStateOf(previous?.nameB ?: "") }
     var overs by rememberSaveable { mutableStateOf((previous?.rules ?: defaults).overs.toString()) }; var wickets by rememberSaveable { mutableStateOf((previous?.rules ?: defaults).wickets.toString()) }
     var mode by rememberSaveable { mutableStateOf((previous?.rules ?: defaults).extras.name) }
     Text("Set your rules. Then just play.", style = MaterialTheme.typography.headlineSmall)
     OutlinedTextField(a, { if (it.length <= 40) a = it }, label = { Text("Batting first") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { l.teams.filterNot { it.archived }.forEach { t -> AssistChip(onClick = { a = t.name }, label = { Text(t.name) }) } }
     OutlinedTextField(b, { if (it.length <= 40) b = it }, label = { Text("Batting second") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) { l.teams.filterNot { it.archived }.forEach { t -> AssistChip(onClick = { b = t.name }, label = { Text(t.name) }) } }
     TextButton(onClick = { val old = a; a = b; b = old }) { Text("Swap batting order") }
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { OutlinedTextField(overs, { if (it.length <= 2) overs = it.filter(Char::isDigit) }, label = { Text("Overs (1–50)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f)); OutlinedTextField(wickets, { if (it.length <= 2) wickets = it.filter(Char::isDigit) }, label = { Text("Wickets (1–20)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f)) }
     Text("Wides and no-balls", style = MaterialTheme.typography.titleMedium)
     ExtrasMode.entries.forEach { m -> Row(Modifier.fillMaxWidth().clickable { mode = m.name }, verticalAlignment = Alignment.CenterVertically) { RadioButton(mode == m.name, { mode = m.name }); Text(extrasLabel(m)) } }
     val valid = a.isNotBlank() && b.isNotBlank() && !a.trim().equals(b.trim(), true) && (overs.toIntOrNull() ?: 0) in 1..50 && (wickets.toIntOrNull() ?: 0) in 1..20
-    fun resolve(name: String): Team = l.teams.find { it.name.equals(name.trim(), true) }?.copy(archived = false) ?: Team(name = name.trim())
-    Button(enabled = valid && !busy, onClick = { create(resolve(a), resolve(b), MatchRules(overs.toInt(), wickets.toInt(), ExtrasMode.valueOf(mode))) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Start match") }
+    Button(enabled = valid && !busy, onClick = { create(a.trim(), b.trim(), MatchRules(overs.toInt(), wickets.toInt(), ExtrasMode.valueOf(mode))) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Start match") }
 }
 
 @Composable private fun LiveScore(g: Game, s: Score, busy: Boolean, failed: Boolean, record: (Kind, Int, Boolean) -> Unit, more: () -> Unit, undo: () -> Unit, chase: () -> Unit, details: () -> Unit, undoEnabled: Boolean) {

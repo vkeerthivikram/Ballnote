@@ -25,13 +25,10 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     fun retry() { command(retry ?: { library.value = repo.snapshot() }) }
     private suspend fun current(id: String): Pair<Game, List<Delivery>> { val l = repo.snapshot(); return l.games.first { it.id == id } to l.deliveries(id) }
     fun open(g: Game) { selected.value = g.id; command { val (latest, ds) = current(g.id); repo.save(latest.copy(opened = System.currentTimeMillis()), ds) } }
-    fun team(t: Team) = command { repo.team(t) }
-    fun create(a: Team, b: Team, rules: MatchRules) {
-      val g = Game(teamA = a.id, teamB = b.id, nameA = a.name, nameB = b.name, rules = rules)
+    fun create(a: String, b: String, rules: MatchRules) {
+      val g = Game(teamA = newId(), teamB = newId(), nameA = a.trim(), nameB = b.trim(), rules = rules)
       command {
-        require(a.id != b.id) { "Choose two different teams." }; rules.validate()
-        repo.team(a); repo.team(b)
-        settings.save(preferences.value.copy(rules = rules)); repo.save(g, emptyList()); selected.value = g.id
+        settings.save(preferences.value.copy(rules = rules)); repo.create(g); selected.value = g.id
       }
     }
     fun record(id: String, kind: Kind, runs: Int, wicket: Boolean) = command {
