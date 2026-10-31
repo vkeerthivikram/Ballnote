@@ -10,15 +10,26 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import com.ballnote.app.ui.resultFile
 import android.graphics.BitmapFactory
+import android.graphics.Bitmap
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 class RepositoryTest {
     @Test fun generateShareableResultWithoutNetwork() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val g = Game(teamA = "a", teamB = "b", nameA = "Weekend XI", nameB = "Turf Titans", abandoned = true)
-        val uri = resultFile(context, g, Scoring.score(g, emptyList()))
-        val image = context.contentResolver.openInputStream(uri).use { BitmapFactory.decodeStream(it) }
-        assertEquals(1080, image.width); assertEquals(1080, image.height); image.recycle()
+        val chase = g.copy(abandoned = false, chaseStarted = true, firstClosed = true, rules = MatchRules(1, 5))
+        val first = Delivery(matchId = chase.id, innings = 1, sequence = 0, runs = 4)
+        val win = listOf(first, Delivery(matchId = chase.id, innings = 2, sequence = 0, runs = 6))
+        val tie = listOf(first) + (0..5).map { Delivery(matchId = chase.id, innings = 2, sequence = it, runs = if (it < 4) 1 else 0) }
+        val longNames = chase.copy(nameA = "Weekend Cricket Club Morning Team Alpha", nameB = "Turf Cricket Club Evening Team Champions")
+        listOf(Triple("no-result", g, emptyList()), Triple("completed", chase, win), Triple("tied", chase, tie), Triple("long-names", longNames, win)).forEach { (label, match, deliveries) ->
+            val uri = resultFile(context, match, Scoring.score(match, deliveries))
+            val image = context.contentResolver.openInputStream(uri).use { BitmapFactory.decodeStream(it) }
+            assertEquals(1080, image.width); assertEquals(1080, image.height)
+            File(context.filesDir, "result-$label.png").outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            image.recycle()
+        }
     }
     @Test fun persistentRoundTripAndAtomicRestore() = runTest {
         val context = ApplicationProvider.getApplicationContext<Context>()
@@ -78,6 +89,55 @@ class RepositoryTest {
             assertEquals(setOf("Morning A", "Evening A"), saved.games.map { it.nameA }.toSet())
             assertEquals(setOf("Morning B", "Evening B"), saved.games.map { it.nameB }.toSet())
             assertEquals(backup.teams.toSet(), saved.teams.toSet())
+        } finally { repo.close(); context.deleteDatabase(name) }
+    }
+
+    @Test fun deleteAndUndoPreserveSharedLegacySidesAndOtherMatches() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "test-${newId()}.db"
+        var repo = Repository(context, name)
+        try {
+            val first = Game(teamA = "a", teamB = "b", nameA = "First", nameB = "Second")
+            val other = Game(teamA = "a", teamB = "c", nameA = "First", nameB = "Third")
+            val original = Backup(teams = listOf(Team("a", "First"), Team("b", "Second"), Team("c", "Third"), Team("old", "Archived", true)),
+                matches = listOf(first, other), deliveries = listOf(Delivery(matchId = first.id, innings = 1, sequence = 0, runs = 4), Delivery(matchId = other.id, innings = 1, sequence = 0, runs = 1)))
+            repo.restore(original)
+            val deleted = repo.deleteMatches(setOf(first.id))
+            repo.close(); repo = Repository(context, name)
+            val kept = repo.snapshot()
+            assertEquals(listOf(other), kept.games)
+            assertEquals(setOf("a", "c", "old"), kept.teams.map { it.id }.toSet())
+            assertEquals(listOf(other.id), kept.balls.map { it.matchId })
+            Backup(teams = kept.teams, matches = kept.games, deliveries = kept.balls).validate()
+            repo.undoDeletion(deleted)
+            val restored = repo.snapshot()
+            assertEquals(original.matches.toSet(), restored.games.toSet())
+            assertEquals(original.deliveries.toSet(), restored.balls.toSet())
+            assertEquals(original.teams.toSet(), restored.teams.toSet())
+        } finally { repo.close(); context.deleteDatabase(name) }
+    }
+
+    @Test fun deleteAllAndUndoDoNotOverwriteNewOrChangedMatches() = runTest {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val name = "test-${newId()}.db"
+        val repo = Repository(context, name)
+        try {
+            fun game() = Game(teamA = newId(), teamB = newId(), nameA = "Team A", nameB = "Team B")
+            val first = game(); val second = game()
+            repo.create(first); repo.create(second)
+            val ball = Delivery(matchId = first.id, innings = 1, sequence = 0, runs = 4)
+            repo.save(first, listOf(ball))
+            val deleted = repo.deleteMatches(setOf(first.id, second.id))
+            assertEquals(Library(), repo.snapshot())
+            val newMatch = game(); repo.create(newMatch)
+            repo.undoDeletion(deleted)
+            assertEquals(3, repo.snapshot().games.size)
+            repo.save(first, listOf(ball.copy(runs = 6)))
+            repo.undoDeletion(deleted)
+            val saved = repo.snapshot()
+            assertEquals(6, saved.score(saved.games.first { it.id == first.id }).first.runs)
+            assertEquals(3, saved.games.size)
+            Backup(teams = saved.teams, matches = saved.games, deliveries = saved.balls).validate()
         } finally { repo.close(); context.deleteDatabase(name) }
     }
 }

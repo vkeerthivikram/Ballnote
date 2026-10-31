@@ -37,6 +37,7 @@ class ScoringFlowTest {
         rule.waitUntil(15000) { rule.onAllNodesWithContentDescription("4 runs").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithContentDescription("4 runs").performScrollTo().performClick()
         saved()
+        rule.onNodeWithText("Over 1 · 4 runs").assertExists()
         screenshot("scoring-light")
         runBlocking { Settings(rule.activity).save(Preferences(theme = "Dark")) }
         rule.waitForIdle()
@@ -53,7 +54,7 @@ class ScoringFlowTest {
         saved()
         rule.onNodeWithText("Match result and sharing").performScrollTo().performClick()
         rule.onNodeWithText("Turf Titans won by 5 wickets").assertExists()
-        rule.onAllNodesWithText("Edit").onLast().performScrollTo().performClick()
+        rule.onAllNodes(hasContentDescription("Edit delivery", substring = true)).onLast().performScrollTo().performClick()
         rule.onNodeWithText("Runs (0–99)").performTextReplacement("1")
         rule.onNodeWithText("Preview correction").performScrollTo().performClick()
         rule.onNodeWithText("Apply correction").performClick()
@@ -70,5 +71,30 @@ class ScoringFlowTest {
         rule.onNodeWithText("Weekend XI vs Turf Titans").assertExists()
         rule.onNodeWithText("Evening XI vs Turf Titans").assertExists()
         rule.onNodeWithText("Teams").assertDoesNotExist()
+        rule.onNodeWithContentDescription("Match options for Weekend XI vs Turf Titans").performScrollTo().performClick()
+        rule.onNodeWithText("Delete match").performClick()
+        rule.waitUntil(10000) { rule.onAllNodesWithText("Weekend XI vs Turf Titans").fetchSemanticsNodes().isEmpty() }
+        rule.onNodeWithText("Undo").performClick()
+        rule.waitUntil(10000) { rule.onAllNodesWithText("Weekend XI vs Turf Titans").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("Select").performClick()
+        rule.onNodeWithContentDescription("Select Evening XI vs Turf Titans").performScrollTo().performClick()
+        rule.onNodeWithContentDescription("Delete selected matches").performClick()
+        rule.waitUntil(10000) { rule.onAllNodesWithText("Evening XI vs Turf Titans").fetchSemanticsNodes().isEmpty() }
+        rule.onNodeWithText("Weekend XI vs Turf Titans").assertExists()
+        rule.onNodeWithText("Undo").performClick()
+        rule.waitUntil(10000) { rule.onAllNodesWithText("Evening XI vs Turf Titans").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("Settings").performClick()
+        rule.onNodeWithText("Delete all matches").performScrollTo().performClick()
+        rule.onNodeWithText("Cancel").performClick()
+        rule.onNodeWithText("Matches").performClick()
+        rule.onNodeWithText("Weekend XI vs Turf Titans").assertExists()
+        rule.onNodeWithText("Evening XI vs Turf Titans").assertExists()
+        rule.onNodeWithText("Settings").performClick()
+        rule.onNodeWithText("Delete all matches").performScrollTo().performClick()
+        rule.onNodeWithText("Delete all").performClick()
+        rule.waitUntil(10000) { rule.onAllNodesWithText("Weekend XI vs Turf Titans").fetchSemanticsNodes().isEmpty() }
+        rule.onNodeWithText("Your next game starts here.").assertExists()
+        rule.onNodeWithText("Undo").performClick()
+        rule.waitUntil(10000) { rule.onAllNodesWithText("Weekend XI vs Turf Titans").fetchSemanticsNodes().isNotEmpty() }
     }
 }

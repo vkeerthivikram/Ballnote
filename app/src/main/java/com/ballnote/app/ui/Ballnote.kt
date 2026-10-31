@@ -2,10 +2,6 @@
 package com.ballnote.app.ui
 
 import android.content.Intent
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Typeface
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -31,7 +27,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ballnote.app.AppModel
 import com.ballnote.app.data.*
@@ -40,7 +35,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
-import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -48,7 +42,7 @@ import java.util.Locale
 private val Light = lightColorScheme(primary = Color(0xFF4C609B), onPrimary = Color.White, primaryContainer = Color(0xFFDCE2FF), onPrimaryContainer = Color(0xFF10244F), secondaryContainer = Color(0xFFE1E3F3), background = Color(0xFFFAF8FF), surface = Color(0xFFFAF8FF))
 private val Dark = darkColorScheme(primary = Color(0xFFB4C5FF), onPrimary = Color(0xFF192E60), primaryContainer = Color(0xFF304576), onPrimaryContainer = Color(0xFFDCE2FF), secondaryContainer = Color(0xFF2B2D3B), background = Color(0xFF11131B), surface = Color(0xFF11131B))
 fun extrasLabel(mode: ExtrasMode) = when (mode) { ExtrasMode.REBOWL -> "+1, bowl again"; ExtrasMode.COUNT -> "+1, count the ball"; ExtrasMode.FINAL_OVER_REBOWL -> "Bowl again in final over" }
-private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).format(Date(time))
+internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).format(Date(time))
 
 @Composable fun Ballnote(vm: AppModel) {
     val prefs by vm.preferences.collectAsStateWithLifecycle()
@@ -72,6 +66,7 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
     val selected by vm.selected.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
+    val deleted by vm.deleted.collectAsStateWithLifecycle()
     var route by rememberSaveable { mutableStateOf("Matches") }
     var gameId by rememberSaveable { mutableStateOf<String?>(null) }
     var rematchId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -79,6 +74,8 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
     var correction by remember { mutableStateOf<Correction?>(null) }
     var confirm by remember { mutableStateOf<String?>(null) }
     var pendingBackup by remember { mutableStateOf<Backup?>(null) }
+    var choosing by rememberSaveable { mutableStateOf(false) }
+    var chosen by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var fileMessage by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope(); val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
@@ -88,7 +85,20 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
     val ds = if (g != null) l.deliveries(g.id) else emptyList()
     val s = if (g != null) l.score(g) else null
     LaunchedEffect(selected) { selected?.let { gameId = it; route = "Live" } }
-    LaunchedEffect(route) { if (route !in listOf("Matches", "Settings", "New match", "Live", "Match details")) route = "Matches" }
+    LaunchedEffect(route) {
+        if (route !in listOf("Matches", "Settings", "New match", "Live", "Match details")) route = "Matches"
+        if (route != "Matches") { choosing = false; chosen = emptyList() }
+    }
+    LaunchedEffect(l?.games) {
+        chosen = chosen.filter { id -> l?.games?.any { it.id == id } == true }
+    }
+    LaunchedEffect(deleted?.id) {
+        deleted?.let { event ->
+            val count = event.backup.matches.size
+            val response = snackbar.showSnackbar(if (count == 1) "Match deleted" else "$count matches deleted", "Undo", withDismissAction = true, duration = SnackbarDuration.Long)
+            if (response == SnackbarResult.ActionPerformed) vm.undoDeletion(event.id) else vm.dismissDeletion(event.id)
+        }
+    }
     LaunchedEffect(error) { if (error != null && snackbar.showSnackbar(error!!, "Retry", duration = SnackbarDuration.Indefinite) == SnackbarResult.ActionPerformed) vm.retry() }
     LaunchedEffect(fileMessage) { fileMessage?.let { snackbar.showSnackbar(it); fileMessage = null } }
     val view = LocalView.current
@@ -104,20 +114,33 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
     } }
     fun back() { route = "Matches"; vm.selected.value = null }
     BackHandler(route !in listOf("Matches", "Settings")) { back() }
+    BackHandler(route == "Matches" && choosing) { choosing = false; chosen = emptyList() }
     val root = route in listOf("Matches", "Settings")
     val pageScroll = remember(route, gameId) { ScrollState(0) }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
-        topBar = { TopAppBar(title = { Text(if (route == "Live") "Ballnote" else route, fontWeight = FontWeight.Bold) }, navigationIcon = { if (!root) IconButton(onClick = { back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to matches") } }, actions = { if (route == "Live" && g != null) IconButton(onClick = { route = "Match details" }) { Icon(Icons.AutoMirrored.Outlined.List, "Match details and corrections") } }) },
+        topBar = { TopAppBar(title = { Text(if (route == "Live") "Ballnote" else if (route == "Matches" && choosing) "${chosen.size} selected" else route, fontWeight = FontWeight.Bold) }, navigationIcon = { if (!root) IconButton(onClick = { back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to matches") } }, actions = {
+            if (route == "Live" && g != null) IconButton(onClick = { route = "Match details" }) { Icon(Icons.AutoMirrored.Outlined.List, "Match details and corrections") }
+            if (route == "Matches" && l?.games?.isNotEmpty() == true) {
+                TextButton(onClick = { choosing = !choosing; chosen = emptyList() }, enabled = !busy) { Text(if (choosing) "Cancel" else "Select") }
+                if (choosing) IconButton(onClick = { vm.deleteMatches(chosen.toSet()); choosing = false; chosen = emptyList() }, enabled = chosen.isNotEmpty() && !busy) { Icon(Icons.Outlined.Delete, "Delete selected matches") }
+            }
+        }) },
         bottomBar = { if (root) NavigationBar { listOf("Matches", "Settings").forEach { label -> NavigationBarItem(selected = route == label, onClick = { route = label }, icon = { Icon(if (label == "Settings") Icons.Outlined.Settings else Icons.Outlined.DateRange, label) }, label = { Text(label) }) } } }
     ) { padding ->
         if (l == null) { Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { if (error == null) CircularProgressIndicator() else Text("Could not open saved data. Use Retry below.") }; return@Scaffold }
         Column(Modifier.padding(padding).fillMaxSize().verticalScroll(pageScroll).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(if (route == "Live") 8.dp else 16.dp)) {
             when(route) {
                 "Matches" -> {
-                    Button(onClick = { rematchId = null; route = "New match" }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(8.dp)); Text("New match") }
+                    if (choosing) TextButton(onClick = { chosen = if (chosen.size == l.games.size) emptyList() else l.games.map { it.id } }) { Text(if (chosen.size == l.games.size) "Deselect all" else "Select all") }
+                    else Button(onClick = { rematchId = null; route = "New match" }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(8.dp)); Text("New match") }
                     if (l.games.isEmpty()) Empty("Your next game starts here.", "Choose two teams, set your turf rules, and tap each ball. Everything stays on this phone.")
-                    l.games.sortedByDescending { it.created }.forEach { game -> MatchCard(game, l.score(game)) { gameId = game.id; if (l.score(game).finished) route = "Match details" else vm.open(game) } }
+                    l.games.sortedByDescending { it.created }.forEach { game -> key(game.id) {
+                        MatchCard(game, l.score(game), selected = if (choosing) game.id in chosen else null,
+                            open = { if (choosing) chosen = if (game.id in chosen) chosen - game.id else chosen + game.id
+                                else { gameId = game.id; if (l.score(game).finished) route = "Match details" else vm.open(game) } },
+                            delete = { vm.deleteMatches(setOf(game.id)) })
+                    } }
                 }
                 "New match" -> Setup(rematchId?.let { id -> l.games.find { it.id == id } }, prefs.rules, busy) { a, b, rules -> vm.create(a, b, rules) }
                 "Live" -> if (g != null && s != null) {
@@ -136,16 +159,15 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
                     listOf(1 to s.first, 2 to s.second).filter { it.first == 1 || g.chaseStarted }.forEach { (number, inning) ->
                         HorizontalDivider(); Text("${if (number == 1) g.nameA else g.nameB}  ${inning.runs}/${inning.wickets}", style = MaterialTheme.typography.titleLarge)
                         Text("${inning.overs} overs${if (inning.early) " · ended early" else ""}")
-                        inning.timeline.groupBy { it.over }.forEach { (over, balls) ->
-                            Text("Over ${over + 1}", style = MaterialTheme.typography.labelLarge)
-                            balls.forEach { ball -> Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Text("${ball.delivery.label} · ${if (ball.counted) "counts as a ball" else "bowl again"}", Modifier.weight(1f)); TextButton(onClick = { editor = ball.delivery }, enabled = !busy) { Text("Edit") } } }
-                        }
+                        if (inning.timeline.isNotEmpty()) Text("Tap a delivery to edit it.", style = MaterialTheme.typography.bodySmall)
+                        inning.oversBreakdown.forEach { over -> OverHistory(over) { if (!busy) editor = it } }
                         if (inning.timeline.isEmpty()) Text("No deliveries yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     if (!s.finished) {
                         if (!g.chaseStarted && s.status == Status.FIRST) OutlinedButton(onClick = { confirm = "End first innings" }) { Text("End first innings early") }
                         TextButton(onClick = { confirm = "Abandon match" }) { Text("Abandon match", color = MaterialTheme.colorScheme.error) }
                     }
+                    TextButton(onClick = { vm.deleteMatches(setOf(g.id)); back() }, enabled = !busy) { Text("Delete match", color = MaterialTheme.colorScheme.error) }
                 }
                 "Settings" -> {
                     Text("Appearance", style = MaterialTheme.typography.titleLarge)
@@ -157,6 +179,7 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
                     Text("Saved on this phone. Export a backup before changing phones or uninstalling Ballnote.")
                     OutlinedButton(onClick = { export.launch("ballnote-backup-${System.currentTimeMillis()}.json") }, enabled = !busy) { Text("Export backup") }
                     OutlinedButton(onClick = { restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !busy) { Text("Restore backup") }
+                    TextButton(onClick = { confirm = "Delete all matches" }, enabled = l.games.isNotEmpty() && !busy) { Text("Delete all matches", color = MaterialTheme.colorScheme.error) }
                     Text("Ballnote 1.0 · Tap. Score. Play.", style = MaterialTheme.typography.bodySmall)
                 }
             }
@@ -175,12 +198,19 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
         if (c.after.excluded.isNotEmpty()) Text("${c.after.excluded.size} later deliveries will be removed: ${c.after.excluded.joinToString { it.label }}", color = MaterialTheme.colorScheme.error)
         if (c.before.finished && !c.after.finished) Text("This match will reopen.")
     } }, confirmButton = { TextButton(onClick = { vm.correction(c); correction = null }, enabled = !busy) { Text("Apply correction") } }, dismissButton = { TextButton(onClick = { correction = null }) { Text("Cancel") } }) }
-    confirm?.let { title -> AlertDialog(onDismissRequest = { confirm = null }, title = { Text(title + "?") }, text = { Text(if (title == "Abandon match") "Keep all recorded deliveries and mark this match as No result." else "Close the first innings at the current score and set the chase target.") }, confirmButton = { TextButton(onClick = { g?.let { if (title == "Abandon match") vm.abandon(it.id) else vm.endFirst(it.id) }; confirm = null }) { Text("Confirm") } }, dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } }) }
+    confirm?.let { title -> AlertDialog(onDismissRequest = { confirm = null }, title = { Text(title + "?") }, text = { Text(when (title) {
+        "Delete all matches" -> "Delete all ${l?.games?.size ?: 0} matches and their deliveries, including unfinished matches? Export a backup first if you want a permanent copy."
+        "Abandon match" -> "Keep all recorded deliveries and mark this match as No result."
+        else -> "Close the first innings at the current score and set the chase target."
+    }) }, confirmButton = { TextButton(onClick = {
+        if (title == "Delete all matches") { vm.deleteMatches(l?.games?.map { it.id }?.toSet() ?: emptySet()); back() }
+        else g?.let { if (title == "Abandon match") vm.abandon(it.id) else vm.endFirst(it.id) }
+        confirm = null
+    }, enabled = !busy) { Text(if (title == "Delete all matches") "Delete all" else "Confirm") } }, dismissButton = { TextButton(onClick = { confirm = null }) { Text("Cancel") } }) }
     pendingBackup?.let { b -> AlertDialog(onDismissRequest = { pendingBackup = null }, title = { Text("Replace saved data?") }, text = { Text("Restore ${b.matches.size} matches and ${b.deliveries.size} deliveries. This replaces all current matches. Export a backup first if you want to keep them.") }, confirmButton = { TextButton(onClick = { vm.restore(b); pendingBackup = null; route = "Matches" }, enabled = !busy) { Text("Replace and restore") } }, dismissButton = { TextButton(onClick = { pendingBackup = null }) { Text("Cancel") } }) }
 }
 
 @Composable private fun Empty(title: String, body: String) { Column(Modifier.padding(vertical = 40.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) { Text(title, style = MaterialTheme.typography.headlineMedium); Text(body, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-@Composable private fun MatchCard(g: Game, s: Score, open: () -> Unit) { OutlinedCard(onClick = open, modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("${g.nameA} vs ${g.nameB}", style = MaterialTheme.typography.titleLarge); Text("${date(g.created)} · ${g.rules.overs} overs", style = MaterialTheme.typography.bodySmall); Text("${s.first.runs}/${s.first.wickets} (${s.first.overs})" + if (g.chaseStarted) "  ·  ${s.second.runs}/${s.second.wickets} (${s.second.overs})" else ""); Text(s.result, color = MaterialTheme.colorScheme.primary) } } }
 @Composable private fun Toggle(title: String, subtitle: String, checked: Boolean, change: (Boolean) -> Unit) { Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(title, style = MaterialTheme.typography.titleMedium); Text(subtitle, style = MaterialTheme.typography.bodySmall) }; Switch(checked = checked, onCheckedChange = change, modifier = Modifier.semantics { contentDescription = title }) } }
 
 @Composable private fun Setup(previous: Game?, defaults: MatchRules, busy: Boolean, create: (String, String, MatchRules) -> Unit) {
@@ -217,13 +247,14 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
             if (g.chaseStarted) Text("Target ${s.target}", style = MaterialTheme.typography.bodySmall)
         }
     }
-    Text("This over", style = MaterialTheme.typography.labelLarge)
     val lastOver = current.timeline.lastOrNull()?.over ?: 0
     val balls = current.timeline.filter { it.over == lastOver }
+    val over = current.oversBreakdown.lastOrNull()
+    Text(if (over == null) "This over · 0 runs" else overLabel(over), style = MaterialTheme.typography.labelLarge)
     val scroll = rememberScrollState()
-    LaunchedEffect(balls.size) { scroll.scrollTo(scroll.maxValue) }
+    LaunchedEffect(lastOver, balls.size) { scroll.scrollTo(scroll.maxValue) }
     Row(Modifier.fillMaxWidth().horizontalScroll(scroll), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        balls.forEach { b -> Surface(shape = RoundedCornerShape(24.dp), color = if (b.delivery.wicket) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer) { Box(Modifier.defaultMinSize(40.dp, 40.dp).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) { Text(b.delivery.label, fontWeight = FontWeight.SemiBold) } } }
+        balls.forEach { b -> key(b.delivery.id) { DeliveryChip(b) } }
         repeat((6 - balls.count { it.counted }).coerceAtLeast(0)) { Surface(shape = RoundedCornerShape(24.dp), border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline)) { Spacer(Modifier.size(40.dp)) } }
     }
     if (playing) {
@@ -264,16 +295,3 @@ private fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).fo
 }
 
 private fun summary(g: Game, s: Score) = "${g.nameA} ${s.first.runs}/${s.first.wickets} (${s.first.overs})\n${g.nameB} ${s.second.runs}/${s.second.wickets} (${s.second.overs})\n${s.result}\n${date(g.created)} · Ballnote"
-internal fun resultFile(context: android.content.Context, g: Game, s: Score): android.net.Uri {
-    val bitmap = Bitmap.createBitmap(1080, 1080, Bitmap.Config.ARGB_8888); val canvas = Canvas(bitmap)
-    canvas.drawColor(android.graphics.Color.rgb(16, 29, 60))
-    val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.rgb(220, 226, 255); typeface = Typeface.create("sans-serif", Typeface.BOLD) }
-    fun text(value: String, y: Float, size: Float) { paint.textSize = size; while (paint.measureText(value) > 920 && paint.textSize > 18) paint.textSize -= 1; canvas.drawText(value, 80f, y, paint) }
-    text("Ballnote", 120f, 48f); text(date(g.created), 180f, 28f)
-    text(g.nameA, 300f, 48f); text("${s.first.runs}/${s.first.wickets}   ${s.first.overs} overs", 400f, 76f)
-    text(g.nameB, 550f, 48f); text("${s.second.runs}/${s.second.wickets}   ${s.second.overs} overs", 650f, 76f)
-    text(s.result, 820f, 44f); text("Tap. Score. Play.", 980f, 30f)
-    val dir = File(context.cacheDir, "results").apply { mkdirs() }; val file = File(dir, "${g.id}.png")
-    file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }; bitmap.recycle()
-    return FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-}

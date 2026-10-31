@@ -19,9 +19,15 @@ Choose the overs, wicket limit and extras rule before starting. The defaults are
 
 Tap a run total, wicket, wide or no-ball to record a delivery. Use **More** for additional runs or runs combined with a wicket. Ballnote calculates the chase target, remaining balls and winning margin.
 
+The delivery row shows the current over's runs, including extras. Fours and sixes have different colours, and wickets are red. Match details groups deliveries by over with a total for each. Tap a delivery chip to edit it.
+
 Use **Undo last ball** to remove the latest delivery. You can also edit a delivery in either innings. The app previews corrections before you apply them.
 
 Matches save as you score, so you can close the app and resume later. Team names belong to each match. Use Rematch to copy the names and rules, then change them for the next game. You can share a match result as an image.
+
+Match cards show their status in text and colour. Shared results have separate innings panels and highlight the winner.
+
+To delete a match, open its card's menu or use **Delete match** in match details. Use **Select** on the Matches screen to delete several at once. The deletion message has an **Undo** action. In Settings, **Delete all matches** asks for confirmation before clearing the history, including unfinished matches.
 
 The app supports light, dark and system appearance. On Android 12 or later, it can use colours from your wallpaper.
 

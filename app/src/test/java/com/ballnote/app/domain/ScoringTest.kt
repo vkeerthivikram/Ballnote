@@ -69,4 +69,33 @@ class ScoringTest {
         assertEquals("Second", decoded.matches.single().nameB)
     }
     @Test fun invalidRulesAndRunsAreRejected() { assertThrows(IllegalArgumentException::class.java) { MatchRules(0).validate() }; val g = game(); assertThrows(IllegalArgumentException::class.java) { Scoring.score(g, listOf(ball(g, 0, -1))) } }
+
+    @Test fun overTotalsIncludeExtrasAndFollowCorrectionsAndUndo() {
+        val g = game(MatchRules(2, 5))
+        val four = ball(g, 0, 4)
+        val ds = listOf(four, ball(g, 1, 4, Kind.NO_BALL), ball(g, 2, wicket = true), ball(g, 3, 1), ball(g, 4), ball(g, 5, 6), ball(g, 6, 2), ball(g, 7, 3))
+        val overs = Scoring.score(g, ds).first.oversBreakdown
+        assertEquals(listOf(18, 3), overs.map { it.runs })
+        assertEquals(listOf(6, 1), overs.map { it.balls })
+        assertEquals(1, overs.first().wickets)
+        assertEquals(7, overs.first().deliveries.size)
+        val corrected = Scoring.preview(g, ds, four.id, four.copy(runs = 1))
+        assertEquals(listOf(15, 3), corrected.after.first.oversBreakdown.map { it.runs })
+        assertEquals(listOf(18), Scoring.score(g, ds.dropLast(1)).first.oversBreakdown.map { it.runs })
+    }
+
+    @Test fun overTotalsRespectExtrasModesAtTheOverBoundary() {
+        ExtrasMode.entries.forEach { mode ->
+            val g = game(MatchRules(2, 5, mode))
+            val ds = (0..4).map { ball(g, it) } + ball(g, 5, kind = Kind.WIDE) + ball(g, 6, 4, Kind.NO_BALL) + ball(g, 7, 4)
+            val overs = Scoring.score(g, ds).first.oversBreakdown
+            if (mode == ExtrasMode.REBOWL) {
+                assertEquals(listOf(10), overs.map { it.runs })
+                assertEquals(6, overs.single().balls)
+            } else {
+                assertEquals(listOf(1, 9), overs.map { it.runs })
+                assertEquals(if (mode == ExtrasMode.COUNT) 2 else 1, overs.last().balls)
+            }
+        }
+    }
 }

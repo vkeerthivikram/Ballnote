@@ -10,6 +10,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
+data class DeletedMatches(val id: String = newId(), val backup: Backup)
+
 class AppModel(app: Application) : AndroidViewModel(app) {
     private val repo = Repository(app)
     private val settings = Settings(app)
@@ -18,6 +20,7 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     val error = MutableStateFlow<String?>(null)
     val busy = MutableStateFlow(false)
     val selected = MutableStateFlow<String?>(null)
+    val deleted = MutableStateFlow<DeletedMatches?>(null)
     private val lock = Mutex()
     private var retry: (suspend () -> Unit)? = null
     init { viewModelScope.launch { repo.library.catch { error.value = "Could not open saved data: ${it.message}" }.collect { data -> if (library.value == null) selected.value = data.games.filter { !data.score(it).finished }.maxByOrNull { it.opened }?.id; library.value = data } } }
@@ -54,5 +57,16 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         repo.save(g, c.deliveries)
     }
     fun preferences(p: Preferences) = command { settings.save(p) }
-    fun restore(b: Backup) = command { repo.restore(b); selected.value = null }
+    fun deleteMatches(ids: Set<String>) = command {
+        val removed = repo.deleteMatches(ids)
+        if (removed.matches.isNotEmpty()) {
+            deleted.value = DeletedMatches(backup = removed)
+            if (selected.value in ids) selected.value = null
+        }
+    }
+    fun undoDeletion(id: String) = command {
+        deleted.value?.takeIf { it.id == id }?.let { repo.undoDeletion(it.backup); deleted.value = null }
+    }
+    fun dismissDeletion(id: String) { if (deleted.value?.id == id) deleted.value = null }
+    fun restore(b: Backup) = command { repo.restore(b); selected.value = null; deleted.value = null }
 }

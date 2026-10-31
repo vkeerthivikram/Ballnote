@@ -18,8 +18,12 @@ fun newId(): String = UUID.randomUUID().toString()
     fun validate() { require(innings in 1..2 && sequence >= 0 && runs in 0..99) { "Invalid delivery." } }
 }
 data class ScoredBall(val delivery: Delivery, val over: Int, val counted: Boolean)
+data class OverScore(val number: Int, val runs: Int, val wickets: Int, val balls: Int, val deliveries: List<ScoredBall>)
 data class InningsScore(val runs: Int, val wickets: Int, val balls: Int, val ended: Boolean, val early: Boolean, val timeline: List<ScoredBall>, val excluded: List<Delivery>) {
     val overs: String get() = "${balls / 6}.${balls % 6}"
+    val oversBreakdown: List<OverScore> get() = timeline.groupBy { it.over }.map { (over, deliveries) ->
+        OverScore(over + 1, deliveries.sumOf { it.delivery.total }, deliveries.count { it.delivery.wicket }, deliveries.count { it.counted }, deliveries)
+    }
 }
 enum class Status { FIRST, INTERVAL, CHASE, COMPLETE, ABANDONED }
 data class Score(val first: InningsScore, val second: InningsScore, val status: Status, val target: Int, val winner: String?, val result: String) {
