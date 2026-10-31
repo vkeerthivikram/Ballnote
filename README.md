@@ -8,6 +8,14 @@ Built for team totals and quick updates between balls. No accounts, ads or serve
 
 [Releases](https://github.com/vkeerthivikram/Ballnote/releases) · [Release guide](RELEASES.md) · [Report a bug](https://github.com/vkeerthivikram/Ballnote/issues)
 
+## Launch video
+
+https://github.com/user-attachments/assets/a3130143-ef43-4bdd-a125-e766d957c668
+
+[Download the 20-second launch video](https://github.com/vkeerthivikram/Ballnote/releases/download/v1.0.0/brag.mp4) · [Editable composition](brag-output/composition/README.md) · [Storyboard](brag-output/brag-plan.md)
+
+1080p video with real app visuals, original music and tap sounds.
+
 ## A scoreboard you can glance at
 
 <p>

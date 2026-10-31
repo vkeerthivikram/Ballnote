@@ -1,0 +1,20 @@
+{
+  "width": 1920,
+  "height": 1080,
+  "fps": "30/1",
+  "frames": 600,
+  "duration": 20,
+  "videoCodec": "h264",
+  "audioCodec": "aac",
+  "sampleRate": 48000,
+  "channels": 2,
+  "audioStart": "0.000000",
+  "audioDuration": "20.000000",
+  "audioHash": "SHA256=f45152dc7b4ce0f4ecd015e42f7cd8806aa6ddcd836d171abd0601072dfd14e7",
+  "audioPreserved": true,
+  "posterTimestamp": 4.8,
+  "posterFrameSSIM": 0.997816,
+  "meanVolume": "-25.6 dB\r",
+  "maxVolume": "-7.2 dB\r",
+  "originalPreserved": "../brag-original.mp4"
+}
