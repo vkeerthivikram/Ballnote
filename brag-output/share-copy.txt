@@ -1,1 +1,0 @@
-Meet Ballnote: a local-only Android cricket scorer for your next turf match. Tap runs, wickets and extras, let the app handle the counting, and get back to playing. Download the APK: https://github.com/vkeerthivikram/Ballnote/releases/latest
