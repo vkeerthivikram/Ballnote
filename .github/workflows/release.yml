@@ -133,7 +133,20 @@ jobs:
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             flags=()
             if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
-            gh release create "$TAG" --target "$GITHUB_SHA" --title "Ballnote $TAG" --generate-notes "${flags[@]}"
+            notes=(--generate-notes)
+            if [[ -f CHANGELOG.md ]]; then
+              awk -v heading="## [${TAG#v}]" '
+                /^## / {
+                  if (found) exit
+                  if (index($0, heading) == 1) { found=1; next }
+                }
+                found { print }
+              ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+              if grep -q '[^[:space:]]' "$RUNNER_TEMP/release-notes.md"; then
+                notes=(--notes-file "$RUNNER_TEMP/release-notes.md")
+              fi
+            fi
+            gh release create "$TAG" --target "$GITHUB_SHA" --title "Ballnote $TAG" "${notes[@]}" "${flags[@]}"
           fi
           gh release upload "$TAG" dist/*.apk dist/SHA256SUMS.txt --clobber
           echo "Release: https://github.com/$GH_REPO/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

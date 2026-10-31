@@ -2,11 +2,14 @@
 
 ## Publish an APK
 
-1. Open [Actions → Release APK](https://github.com/vkeerthivikram/Ballnote/actions/workflows/release.yml) and choose **Run workflow** on `main`.
-2. Enter a new version without the `v` prefix, such as `1.0.1`. Set the prerelease option if needed.
-3. Leave **Publish a tag and GitHub Release** selected. Uncheck it for a build-only run with downloadable workflow artifacts.
+1. Add the version's changes to [CHANGELOG.md](../CHANGELOG.md) and push them to `main`.
+2. Open [Actions → Release APK](https://github.com/vkeerthivikram/Ballnote/actions/workflows/release.yml) and choose **Run workflow** on `main`.
+3. Enter a new version without the `v` prefix, such as `1.1.0`. Set the prerelease option if needed.
+4. Leave **Publish a tag and GitHub Release** selected. Uncheck it for a build-only run with downloadable workflow artifacts.
 
 The workflow runs unit tests and release lint, builds and verifies a signed APK, then publishes `Ballnote-v<VERSION>.apk` and `SHA256SUMS.txt`. Pushing a commit or tag does not run it.
+
+The release uses the matching version's changelog section as its notes. If that section is missing, GitHub generates notes from the commits instead.
 
 A tag such as `v1.0.1` identifies the source commit; its GitHub Release holds the downloads. An existing tag cannot be moved by the workflow. Retrying a release is supported only from the same commit; changed source requires a new version.
 

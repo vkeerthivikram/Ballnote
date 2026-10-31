@@ -2,7 +2,7 @@
 
 Ballnote keeps score for turf cricket matches on Android. Tap the outcome after each delivery, and the app updates the score and saves the match on your phone. It tracks team totals, not individual batting or bowling statistics.
 
-[Download APK](https://github.com/vkeerthivikram/Ballnote/releases/latest) · [Watch demo](https://github.com/user-attachments/assets/a3130143-ef43-4bdd-a125-e766d957c668) · [Report an issue](https://github.com/vkeerthivikram/Ballnote/issues)
+[Download APK](https://github.com/vkeerthivikram/Ballnote/releases/latest) · [Changelog](CHANGELOG.md) · [Watch demo](https://github.com/user-attachments/assets/a3130143-ef43-4bdd-a125-e766d957c668) · [Report an issue](https://github.com/vkeerthivikram/Ballnote/issues)
 
 <p>
   <img src="docs/screenshots/scoring-light.png" alt="Ballnote scoring screen in light mode" width="240">

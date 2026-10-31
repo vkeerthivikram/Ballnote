@@ -180,7 +180,8 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
                     OutlinedButton(onClick = { export.launch("ballnote-backup-${System.currentTimeMillis()}.json") }, enabled = !busy) { Text("Export backup") }
                     OutlinedButton(onClick = { restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }, enabled = !busy) { Text("Restore backup") }
                     TextButton(onClick = { confirm = "Delete all matches" }, enabled = l.games.isNotEmpty() && !busy) { Text("Delete all matches", color = MaterialTheme.colorScheme.error) }
-                    Text("Ballnote 1.0 · Tap. Score. Play.", style = MaterialTheme.typography.bodySmall)
+                    val versionName = remember(context) { context.packageManager.getPackageInfo(context.packageName, 0).versionName.orEmpty() }
+                    Text("Ballnote $versionName · Tap. Score. Play.", style = MaterialTheme.typography.bodySmall)
                 }
             }
             Spacer(Modifier.height(12.dp))
