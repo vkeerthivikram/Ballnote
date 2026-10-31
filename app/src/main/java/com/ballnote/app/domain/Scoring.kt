@@ -6,20 +6,25 @@ import java.util.UUID
 fun newId(): String = UUID.randomUUID().toString()
 @Serializable enum class ExtrasMode { REBOWL, COUNT, FINAL_OVER_REBOWL }
 @Serializable enum class Kind { NORMAL, WIDE, NO_BALL }
-@Serializable data class MatchRules(val overs: Int = 6, val wickets: Int = 5, val extras: ExtrasMode = ExtrasMode.REBOWL) {
-    fun validate() { require(overs in 1..50 && wickets in 1..20) { "Use 1–50 overs and 1–20 wickets." } }
+@Serializable data class MatchRules(val overs: Int = 6, val wickets: Int = 5, val extras: ExtrasMode = ExtrasMode.REBOWL, val widePenalty: Int = 1, val noBallPenalty: Int = 1) {
+    fun validate() { require(overs in 1..50 && wickets in 1..20 && widePenalty in 1..2 && noBallPenalty in 1..2) { "Use 1–50 overs, 1–20 wickets and 1–2 extra penalty runs." } }
 }
 // Retained for v1 database and backup compatibility. New matches use independent side IDs.
 @Serializable data class Team(val id: String = newId(), val name: String, val archived: Boolean = false)
 @Serializable data class Game(val id: String = newId(), val teamA: String, val teamB: String, val nameA: String, val nameB: String, val rules: MatchRules = MatchRules(), val created: Long = System.currentTimeMillis(), val opened: Long = created, val firstClosed: Boolean = false, val chaseStarted: Boolean = false, val abandoned: Boolean = false)
-@Serializable data class Delivery(val id: String = newId(), val matchId: String, val innings: Int, val sequence: Int, val kind: Kind = Kind.NORMAL, val runs: Int = 0, val wicket: Boolean = false) {
-    val total: Int get() = runs + if (kind == Kind.NORMAL) 0 else 1
+@Serializable data class Delivery(val id: String = newId(), val matchId: String, val innings: Int, val sequence: Int, val kind: Kind = Kind.NORMAL, val runs: Int = 0, val wicket: Boolean = false, val penalty: Int = 1) {
+    val total: Int get() = runs + if (kind == Kind.NORMAL) 0 else penalty
     val label: String get() = (when (kind) { Kind.NORMAL -> if (wicket && runs == 0) "W" else "$runs"; Kind.WIDE -> "Wd${if (runs > 0) "+$runs" else ""}"; Kind.NO_BALL -> "Nb${if (runs > 0) "+$runs" else ""}" }) + if (wicket && (kind != Kind.NORMAL || runs > 0)) "+W" else ""
-    fun validate() { require(innings in 1..2 && sequence >= 0 && runs in 0..99) { "Invalid delivery." } }
+    fun validate() { require(innings in 1..2 && sequence >= 0 && runs in 0..99 && penalty in 1..2) { "Invalid delivery." } }
 }
 data class ScoredBall(val delivery: Delivery, val over: Int, val counted: Boolean)
 data class OverScore(val number: Int, val runs: Int, val wickets: Int, val balls: Int, val deliveries: List<ScoredBall>)
 data class InningsScore(val runs: Int, val wickets: Int, val balls: Int, val ended: Boolean, val early: Boolean, val timeline: List<ScoredBall>, val excluded: List<Delivery>) {
+    val dots get() = timeline.count { it.delivery.total == 0 && !it.delivery.wicket }
+    val extrasTotal get() = timeline.sumOf { if (it.delivery.kind == Kind.NORMAL) 0 else it.delivery.penalty + if (it.delivery.kind == Kind.WIDE) it.delivery.runs else 0 }
+    val fours get() = timeline.count { it.delivery.kind != Kind.WIDE && it.delivery.runs == 4 }
+    val sixes get() = timeline.count { it.delivery.kind != Kind.WIDE && it.delivery.runs == 6 }
+    val recap get() = "$dots dots · $extrasTotal extras · $fours fours · $sixes sixes" + (oversBreakdown.maxByOrNull { it.runs }?.let { "\nBest over: ${it.number} (${it.runs} runs)" } ?: "")
     val overs: String get() = "${balls / 6}.${balls % 6}"
     val oversBreakdown: List<OverScore> get() = timeline.groupBy { it.over }.map { (over, deliveries) ->
         OverScore(over + 1, deliveries.sumOf { it.delivery.total }, deliveries.count { it.delivery.wicket }, deliveries.count { it.counted }, deliveries)
@@ -41,8 +46,9 @@ object Scoring {
             d.validate()
             if (ended()) { excluded += d; continue }
             val counted = d.kind == Kind.NORMAL || rules.extras == ExtrasMode.COUNT || (rules.extras == ExtrasMode.FINAL_OVER_REBOWL && balls < (rules.overs - 1) * 6)
-            timeline += ScoredBall(d, balls / 6, counted)
-            runs += d.total; if (d.wicket) wickets++; if (counted) balls++
+            val scored = d.copy(penalty = when (d.kind) { Kind.WIDE -> rules.widePenalty; Kind.NO_BALL -> rules.noBallPenalty; else -> 1 })
+            timeline += ScoredBall(scored, balls / 6, counted)
+            runs += scored.total; if (d.wicket) wickets++; if (counted) balls++
         }
         return InningsScore(runs, wickets, balls, ended() || closed, closed && !ended(), timeline, excluded)
     }

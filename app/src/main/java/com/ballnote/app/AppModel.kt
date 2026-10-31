@@ -10,13 +10,14 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-data class DeletedMatches(val id: String = newId(), val backup: Backup)
+data class DeletedMatches(val id: String = newId(), val backup: Backup, val competitions: List<Competition> = emptyList())
 
 class AppModel(app: Application) : AndroidViewModel(app) {
     private val repo = Repository(app)
     private val settings = Settings(app)
     val library = MutableStateFlow<Library?>(null)
     val preferences = settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, Preferences())
+    val overCue = MutableStateFlow<String?>(null)
     val error = MutableStateFlow<String?>(null)
     val busy = MutableStateFlow(false)
     val selected = MutableStateFlow<String?>(null)
@@ -40,6 +41,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val inning = if (g.chaseStarted) 2 else 1
         val d = Delivery(matchId = id, innings = inning, sequence = (ds.filter { it.innings == inning }.maxOfOrNull { it.sequence } ?: -1) + 1, kind = kind, runs = runs, wicket = wicket)
         d.validate(); repo.save(g, ds + d)
+        val scored=Scoring.score(g,ds+d); val inningScore=if(g.chaseStarted) scored.second else scored.first
+        if(inningsOverCompleted(if(g.chaseStarted) s.second else s.first,inningScore)) overCue.value="Over complete · ${inningScore.oversBreakdown.last().runs} runs"
     }
     fun undo(id: String) = command {
         val (g, ds) = current(id)
@@ -58,15 +61,64 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     }
     fun preferences(p: Preferences) = command { settings.save(p) }
     fun deleteMatches(ids: Set<String>) = command {
+        val competitions = repo.snapshot().competitions.filter { c -> c.fixtures.any { it.matchId in ids } }
         val removed = repo.deleteMatches(ids)
         if (removed.matches.isNotEmpty()) {
-            deleted.value = DeletedMatches(backup = removed)
+            deleted.value = DeletedMatches(backup = removed, competitions = competitions)
             if (selected.value in ids) selected.value = null
         }
     }
     fun undoDeletion(id: String) = command {
-        deleted.value?.takeIf { it.id == id }?.let { repo.undoDeletion(it.backup); deleted.value = null }
+        deleted.value?.takeIf { it.id == id }?.let { repo.undoDeletion(it.backup); val current=repo.snapshot(); it.competitions.forEach { old -> val now=current.competitions.find { c -> c.id==old.id }; if(now!=null) repo.competition(now.copy(fixtures=now.fixtures.map { f -> val prior=old.fixtures.find { x -> x.id==f.id }; if(f.matchId==null && prior?.matchId in it.backup.matches.map { g -> g.id }) prior!! else f })) }; deleted.value = null }
     }
     fun dismissDeletion(id: String) { if (deleted.value?.id == id) deleted.value = null }
+    fun createCompetition(c: Competition) = command { repo.competition(Competitions.create(c)) }
+    fun startFixture(id: String, fixtureId: String, swap: Boolean) = command {
+        val l=repo.snapshot(); val c=l.competitions.first { it.id==id }; val f=c.fixtures.first { it.id==fixtureId }
+        f.matchId?.let { selected.value=it; return@command }
+        require(!c.closed && !f.bye && f.decision==null) { "This fixture is resolved." }
+        if(c.bestOf) require(!Competitions.headline(c,l.games,l.balls).contains("Series complete")) { "This series is complete." }
+        val (a,b)=Competitions.sides(c,f,l.games,l.balls)
+        require(a!=null && b!=null && a !in c.withdrawn && b !in c.withdrawn) { "Resolve earlier fixtures or withdrawals first." }
+        val first=if(swap) b else a; val second=if(swap) a else b
+        val g=Game(teamA=first,teamB=second,nameA=c.team(first),nameB=c.team(second),rules=c.rules)
+        repo.fixture(c.copy(fixtures=c.fixtures.map { if(it.id==f.id) it.copy(matchId=g.id) else it }),g); selected.value=g.id
+    }
+    fun advanceCompetition(id: String) = command { val l=repo.snapshot(); val c=l.competitions.first { it.id==id }; repo.competition(Competitions.advance(c,l.games,l.balls)) }
+    fun nextSeries(id: String) = command {
+        val l=repo.snapshot(); val c=l.competitions.first { it.id==id }
+        require(!c.closed && c.format==Format.BILATERAL && c.openEnded && c.fixtures.all { Competitions.finished(c,it,l.games,l.balls) }) { "Finish the current session match first." }
+        repo.competition(c.copy(fixtures=c.fixtures+Fixture(label="Match "+(c.fixtures.size+1),a=c.teams[0].id,b=c.teams[1].id)))
+    }
+    fun decideFixture(id: String, fixtureId: String, winner: String, reason: String) = command {
+        val l=repo.snapshot(); val c=l.competitions.first { it.id==id }; val f=c.fixtures.first { it.id==fixtureId }
+        val sides=Competitions.sides(c,f,l.games,l.balls)
+        require(winner in listOfNotNull(sides.first,sides.second) && reason.isNotBlank()) { "Choose a team and record the reason." }
+        require(f.matchId==null || l.games.find { it.id==f.matchId }?.let { l.score(it).finished }==true) { "Finish or abandon the live match first." }
+        require(c.fixtures.none { (it.matchId!=null || it.decision!=null) && (it.sourceA==f.id || it.sourceB==f.id) } && (f.elimination || c.lockedSeeds.isEmpty())) { "Reset later rounds before changing this decision." }
+        repo.competition(c.copy(fixtures=c.fixtures.map { if(it.id==f.id) it.copy(decision=winner,reason=reason.trim()) else it }))
+    }
+    fun replayFixture(id: String, fixtureId: String) = command {
+        val l=repo.snapshot(); val c=l.competitions.first { it.id==id }; val f=c.fixtures.first { it.id==fixtureId }
+        require((f.elimination || c.lockedSeeds.isEmpty()) && c.fixtures.none { (it.matchId!=null || it.decision!=null) && (it.sourceA==f.id || it.sourceB==f.id) }) { "Reset later rounds before replaying." }
+        repo.competition(c.copy(fixtures=c.fixtures.map { if(it.id==f.id) it.copy(matchId=null,decision=null,reason="") else it }))
+    }
+    fun resetRounds(id: String) = command {
+        val c=repo.snapshot().competitions.first { it.id==id }
+        repo.competition(if(c.format==Format.KNOCKOUT) Competitions.create(c.copy(fixtures=emptyList())) else c.copy(fixtures=c.fixtures.filterNot { it.elimination },lockedSeeds=emptyList()))
+    }
+    fun withdraw(id: String, team: String) = command {
+        val l=repo.snapshot(); val c=l.competitions.first { it.id==id }
+        require(c.lockedSeeds.isEmpty()) { "Reset playoffs before changing eligibility." }
+        repo.competition(c.copy(withdrawn=if(team in c.withdrawn) c.withdrawn-team else c.withdrawn+team))
+    }
+    fun closeSession(id: String) = command {
+        val l=repo.snapshot(); val c=l.competitions.first {it.id==id}
+        require(c.format==Format.BILATERAL && c.openEnded && c.fixtures.all {Competitions.finished(c,it,l.games,l.balls)}) { "Finish the current session match first." }
+        repo.competition(c.copy(closed=true))
+    }
+    fun deleteCompetition(id: String) = command { repo.removeCompetition(id) }
     fun restore(b: Backup) = command { repo.restore(b); selected.value = null; deleted.value = null }
 }
+
+internal fun inningsOverCompleted(before: InningsScore, after: InningsScore) = after.balls > before.balls && after.balls % 6 == 0

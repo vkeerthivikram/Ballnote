@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Independent +1/+2 wide and no-ball penalties, saved with each match.
+- Over-completion messages and haptics, a large scoreboard, and automatic innings recaps.
+- Bilateral and open-ended series, tri-series, leagues, knockouts, league playoffs, and group-stage tournaments.
+- Fixture previews and shuffling, points tables and NRR, qualification, byes, organiser decisions, replay, withdrawals, and competition image sharing.
+- Protection against corrections and deletions changing participants in later competition rounds.
+- Room version 2 migration and backup version 2 with competition data; version 1 backups remain importable.
+
 ## [1.1.0] - 2026-10-31
 
 ### Added

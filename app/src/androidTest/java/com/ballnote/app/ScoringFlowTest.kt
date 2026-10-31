@@ -24,6 +24,8 @@ class ScoringFlowTest {
         File(rule.activity.filesDir, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
     }
     @Test fun playMatchAndCorrectWinningDelivery() {
+        rule.waitUntil(15000) { rule.onAllNodesWithText("Settings").fetchSemanticsNodes().isNotEmpty() || rule.onAllNodesWithContentDescription("Back to matches").fetchSemanticsNodes().isNotEmpty() }
+        if(rule.onAllNodesWithContentDescription("Back to matches").fetchSemanticsNodes().isNotEmpty()) rule.onNodeWithContentDescription("Back to matches").performClick()
         rule.onNodeWithText("Teams").assertDoesNotExist()
         rule.onNodeWithText("Settings").performClick()
         rule.onNodeWithText("Appearance").assertExists()
@@ -54,7 +56,9 @@ class ScoringFlowTest {
         saved()
         rule.onNodeWithText("Match result and sharing").performScrollTo().performClick()
         rule.onNodeWithText("Turf Titans won by 5 wickets").assertExists()
-        rule.onAllNodes(hasContentDescription("Edit delivery", substring = true)).onLast().performScrollTo().performClick()
+        rule.onNode(hasScrollAction() and hasAnyDescendant(hasText("Rematch"))).performScrollToNode(hasText("Delete match"))
+        rule.onAllNodes(hasContentDescription("Edit delivery", substring = true)).onLast().performClick()
+        rule.waitUntil(10000) { rule.onAllNodesWithText("Runs (0–99)").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Runs (0–99)").performTextReplacement("1")
         rule.onNodeWithText("Preview correction").performScrollTo().performClick()
         rule.onNodeWithText("Apply correction").performClick()
@@ -74,6 +78,7 @@ class ScoringFlowTest {
         rule.onNodeWithContentDescription("Match options for Weekend XI vs Turf Titans").performScrollTo().performClick()
         rule.onNodeWithText("Delete match").performClick()
         rule.waitUntil(10000) { rule.onAllNodesWithText("Weekend XI vs Turf Titans").fetchSemanticsNodes().isEmpty() }
+        rule.waitUntil(10000) { rule.onAllNodesWithText("Undo").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Undo").performClick()
         rule.waitUntil(10000) { rule.onAllNodesWithText("Weekend XI vs Turf Titans").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithText("Select").performClick()

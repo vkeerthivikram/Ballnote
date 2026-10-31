@@ -31,6 +31,26 @@ To delete a match, open its card's menu or use **Delete match** in match details
 
 The app supports light, dark and system appearance. On Android 12 or later, it can use colours from your wallpaper.
 
+## Competitions and series
+
+Open **Competitions** to create a bilateral series, an open-ended session, a tri-series, a league, a knockout, league playoffs, or groups followed by knockouts. Enter 2–16 team names, choose common match rules, and preview the fixtures. Shuffle the teams in the preview to change pairings or group allocation before saving.
+
+Bilateral series support a fixed match count or best-of format. Sessions have a Next match action and can be ended explicitly. Tri-series support single or double round-robin play with an optional top-two final. League playoffs support a top-two final, top-four semifinals, or qualifier/eliminator playoffs. Groups support 2–4 groups with two or four qualifiers per group.
+
+Tap a fixture and choose who bats first. Scores save automatically and update the competition overview. League points are win 2, tie/no result 1, loss 0. Ranking uses points, wins, net run rate, then the original team entry order. NRR uses counted balls, treats all-out innings as their full allocation, and excludes early-closed innings and organiser-awarded results. Preview these rules before starting; this is a local turf competition format.
+
+Use **Generate finals** after completing league fixtures. Tied knockouts can be replayed or resolved with a recorded organiser decision and reason. Withdrawn teams cannot start new fixtures; resolve those fixtures with decisions or reinstate the team. Reset knockout rounds before making a correction that changes qualified teams or participants in an already scored or decided later fixture. Resets and replays retain earlier match records in match history. Deleting a competition also retains its recorded matches.
+
+Share the table, fixtures and results as one image. Competition data is included in exported backups. Version 1 backups can still be imported; newer exports require this updated app.
+
+## Scoring additions
+
+Choose **+1 or +2** penalties independently for wides and no-balls. These are separate from the rule deciding whether extras count as balls. Existing matches keep +1 rules.
+
+A completed over produces a short message and a distinct vibration when haptics are enabled. Tap the score panel to open the large scoreboard; rotate the phone for landscape and use Back to scoring to return. The large scoreboard keeps its screen awake.
+
+Match details includes an automatic recap: scoreless non-wicket deliveries, extras, recorded fours and sixes, and the highest-scoring over. Fours and sixes mean recorded run outcomes, including no-ball batting runs; the app does not distinguish a boundary from four or six runs completed by running. Recaps update after corrections and undo.
+
 ## Backups and privacy
 
 Ballnote works offline, including on first launch. It has no internet permission, accounts, advertising or analytics.

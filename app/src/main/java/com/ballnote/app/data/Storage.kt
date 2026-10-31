@@ -17,7 +17,12 @@ val json = Json { encodeDefaults = true }
 data class InningsRow(val matchId: String, val number: Int, val closed: Boolean)
 @Entity(tableName = "deliveries", indices = [Index(value = ["matchId", "innings", "sequence"], unique = true)], foreignKeys = [ForeignKey(entity = MatchRow::class, parentColumns = ["id"], childColumns = ["matchId"], onDelete = ForeignKey.CASCADE)])
 data class BallRow(@PrimaryKey val id: String, val matchId: String, val innings: Int, val sequence: Int, val payload: String)
+@Entity(tableName = "competitions") data class CompetitionRow(@PrimaryKey val id: String, val payload: String)
 @Dao interface BallnoteDao {
+    @Query("SELECT * FROM competitions") suspend fun readCompetitions(): List<CompetitionRow>
+    @Upsert suspend fun competition(row: CompetitionRow)
+    @Query("DELETE FROM competitions") suspend fun clearCompetitions()
+    @Query("DELETE FROM competitions WHERE id = :id") suspend fun deleteCompetition(id: String)
     @Query("SELECT * FROM teams") suspend fun readTeams(): List<TeamRow>
     @Query("SELECT * FROM matches") suspend fun readGames(): List<MatchRow>
     @Query("SELECT * FROM deliveries ORDER BY innings, sequence") suspend fun readBalls(): List<BallRow>
@@ -34,15 +39,15 @@ data class BallRow(@PrimaryKey val id: String, val matchId: String, val innings:
     @Query("DELETE FROM teams") suspend fun clearTeams()
     @Query("DELETE FROM teams WHERE id IN (:ids)") suspend fun deleteTeams(ids: List<String>)
 }
-@Database(entities = [TeamRow::class, MatchRow::class, InningsRow::class, BallRow::class], version = 1, exportSchema = true)
+@Database(entities = [TeamRow::class, MatchRow::class, InningsRow::class, BallRow::class, CompetitionRow::class], version = 2, exportSchema = true)
 abstract class BallnoteDb : RoomDatabase() { abstract fun dao(): BallnoteDao }
-data class Library(val teams: List<Team> = emptyList(), val games: List<Game> = emptyList(), val balls: List<Delivery> = emptyList()) {
+data class Library(val teams: List<Team> = emptyList(), val games: List<Game> = emptyList(), val balls: List<Delivery> = emptyList(), val competitions: List<Competition> = emptyList()) {
     fun deliveries(id: String) = balls.filter { it.matchId == id }
     fun score(g: Game) = Scoring.score(g, deliveries(g.id))
 }
-@Serializable data class Backup(val formatVersion: Int = 1, val teams: List<Team>, val matches: List<Game>, val deliveries: List<Delivery>) {
+@Serializable data class Backup(val formatVersion: Int = 2, val teams: List<Team>, val matches: List<Game>, val deliveries: List<Delivery>, val competitions: List<Competition> = emptyList()) {
     fun validate() {
-        require(formatVersion == 1) { "This backup version is not supported." }
+        require(formatVersion in 1..2) { "This backup version is not supported." }
         require(teams.map { it.id }.distinct().size == teams.size && matches.map { it.id }.distinct().size == matches.size && deliveries.map { it.id }.distinct().size == deliveries.size) { "Duplicate IDs in backup." }
         require(teams.all { it.id.isNotBlank() && it.name.isNotBlank() && it.name.length <= 40 }) { "Invalid team in backup." }
         val teamIds = teams.map { it.id }.toSet(); val matchIds = matches.map { it.id }.toSet()
@@ -54,15 +59,30 @@ data class Library(val teams: List<Team> = emptyList(), val games: List<Game> = 
             require(ds.map { it.innings to it.sequence }.distinct().size == ds.size) { "Duplicate delivery positions." }
             require(Scoring.score(g, ds).excluded.isEmpty()) { "Backup contains deliveries after an innings ended." }
         }
+        require(competitions.map { it.id }.distinct().size == competitions.size) { "Duplicate competition IDs." }
+        val linked = competitions.flatMap { it.fixtures.mapNotNull { f -> f.matchId } }
+        require(linked.distinct().size == linked.size) { "A match belongs to multiple fixtures." }
+        competitions.forEach { c ->
+            c.validate()
+            c.fixtures.forEach { f ->
+                require(f.matchId == null || f.matchId in matchIds) { "Missing fixture match." }
+                val sides = Competitions.sides(c,f,matches,deliveries)
+                f.matchId?.let { id -> val g=matches.first { it.id==id }; require(setOf(g.teamA,g.teamB)==setOf(sides.first,sides.second) && g.rules==c.rules) { "Fixture does not match its teams or rules." } }
+                require(f.decision == null || f.decision in listOfNotNull(sides.first,sides.second)) { "Invalid fixture decision." }
+            }
+            Competitions.checkChanges(c,matches,deliveries,matches,deliveries)
+        }
         deliveries.forEach { it.validate(); require(it.id.isNotBlank() && it.matchId in matchIds) { "Orphan delivery in backup." } }
     }
 }
 class Repository(context: Context, databaseName: String = "ballnote.db") {
-    private val db = Room.databaseBuilder(context, BallnoteDb::class.java, databaseName).build()
+    private val db = Room.databaseBuilder(context, BallnoteDb::class.java, databaseName).addMigrations(object : androidx.room.migration.Migration(1,2) {
+        override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) { db.execSQL("CREATE TABLE IF NOT EXISTS competitions (id TEXT NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(id))") }
+    }).build()
     fun close() = db.close()
     private val dao = db.dao()
-    suspend fun snapshot(): Library = db.withTransaction { Library(dao.readTeams().map { json.decodeFromString<Team>(it.payload) }, dao.readGames().map { json.decodeFromString<Game>(it.payload) }, dao.readBalls().map { json.decodeFromString<Delivery>(it.payload) }) }
-    val library = db.invalidationTracker.createFlow("teams", "matches", "deliveries").map { snapshot() }
+    suspend fun snapshot(): Library = db.withTransaction { Library(dao.readTeams().map { json.decodeFromString<Team>(it.payload) }, dao.readGames().map { json.decodeFromString<Game>(it.payload) }, dao.readBalls().map { json.decodeFromString<Delivery>(it.payload) }, dao.readCompetitions().map { json.decodeFromString<Competition>(it.payload) }) }
+    val library = db.invalidationTracker.createFlow("teams", "matches", "deliveries", "competitions").map { snapshot() }
     private suspend fun team(t: Team) { require(t.name.isNotBlank() && t.name.length <= 40); dao.team(TeamRow(t.id, json.encodeToString(t))) }
     suspend fun create(g: Game) = db.withTransaction {
         g.rules.validate()
@@ -74,17 +94,24 @@ class Repository(context: Context, databaseName: String = "ballnote.db") {
         save(g, emptyList())
     }
     suspend fun save(g: Game, balls: List<Delivery>) = db.withTransaction {
+        val before = snapshot()
+        before.competitions.forEach { c -> Competitions.checkChanges(c,before.games,before.balls,before.games.filterNot { it.id==g.id }+g,before.balls.filterNot { it.matchId==g.id }+balls) }
         dao.game(MatchRow(g.id, json.encodeToString(g)))
         dao.innings(listOf(InningsRow(g.id, 1, g.firstClosed || g.chaseStarted)) + if (g.chaseStarted) listOf(InningsRow(g.id, 2, Scoring.score(g, balls).second.ended)) else emptyList())
         dao.clearBalls(g.id)
         balls.forEach { d -> dao.ball(BallRow(d.id, d.matchId, d.innings, d.sequence, json.encodeToString(d))) }
     }
+    suspend fun competition(c: Competition) { c.validate(); dao.competition(CompetitionRow(c.id,json.encodeToString(c))) }
+    suspend fun fixture(c: Competition, g: Game) = db.withTransaction { create(g); competition(c) }
+    suspend fun removeCompetition(id: String) { dao.deleteCompetition(id) }
     suspend fun restore(b: Backup) {
         b.validate()
-        db.withTransaction { dao.clearGames(); dao.clearTeams(); b.teams.forEach { team(it) }; b.matches.forEach { save(it, b.deliveries.filter { d -> d.matchId == it.id }) } }
+        db.withTransaction { dao.clearCompetitions(); dao.clearGames(); dao.clearTeams(); b.teams.forEach { team(it) }; b.matches.forEach { save(it, b.deliveries.filter { d -> d.matchId == it.id }) }; b.competitions.forEach { competition(it) } }
     }
     suspend fun deleteMatches(ids: Set<String>): Backup = db.withTransaction {
         val current = snapshot()
+        current.competitions.forEach { c -> Competitions.checkChanges(c,current.games,current.balls,current.games.filterNot { it.id in ids },current.balls.filterNot { it.matchId in ids }) }
+        val affected = current.competitions.filter { c -> c.fixtures.any { it.matchId in ids } }
         val removed = current.games.filter { it.id in ids }
         val remaining = current.games.filterNot { it.id in ids }
         val usedSides = remaining.flatMap { listOf(it.teamA, it.teamB) }.toSet()
@@ -92,6 +119,7 @@ class Repository(context: Context, databaseName: String = "ballnote.db") {
         val removedTeams = current.teams.filter { it.id !in usedSides && (remaining.isEmpty() || it.id in removedSides) }
         val backup = Backup(teams = current.teams.filter { it.id in removedSides || it in removedTeams }, matches = removed, deliveries = current.balls.filter { it.matchId in ids })
         if (removed.isNotEmpty()) {
+            affected.forEach { c -> competition(c.copy(fixtures=c.fixtures.map { if(it.matchId in ids) it.copy(matchId=null,decision=null,reason="") else it })) }
             removed.map { it.id }.chunked(400).forEach { dao.deleteGames(it) }
             removedTeams.map { it.id }.chunked(400).forEach { dao.deleteTeams(it) }
         }
@@ -114,6 +142,6 @@ class Repository(context: Context, databaseName: String = "ballnote.db") {
 val Context.preferences by preferencesDataStore("settings")
 data class Preferences(val theme: String = "System", val dynamic: Boolean = false, val haptics: Boolean = true, val awake: Boolean = true, val rules: MatchRules = MatchRules())
 class Settings(private val context: Context) {
-    val values = context.preferences.data.map { p -> Preferences(p[stringPreferencesKey("theme")] ?: "System", p[booleanPreferencesKey("dynamic")] ?: false, p[booleanPreferencesKey("haptics")] ?: true, p[booleanPreferencesKey("awake")] ?: true, MatchRules(p[intPreferencesKey("overs")] ?: 6, p[intPreferencesKey("wickets")] ?: 5, ExtrasMode.valueOf(p[stringPreferencesKey("extras")] ?: "REBOWL"))) }
-    suspend fun save(p: Preferences) { context.preferences.edit { it[stringPreferencesKey("theme")] = p.theme; it[booleanPreferencesKey("dynamic")] = p.dynamic; it[booleanPreferencesKey("haptics")] = p.haptics; it[booleanPreferencesKey("awake")] = p.awake; it[intPreferencesKey("overs")] = p.rules.overs; it[intPreferencesKey("wickets")] = p.rules.wickets; it[stringPreferencesKey("extras")] = p.rules.extras.name } }
+    val values = context.preferences.data.map { p -> Preferences(p[stringPreferencesKey("theme")] ?: "System", p[booleanPreferencesKey("dynamic")] ?: false, p[booleanPreferencesKey("haptics")] ?: true, p[booleanPreferencesKey("awake")] ?: true, MatchRules(p[intPreferencesKey("overs")] ?: 6, p[intPreferencesKey("wickets")] ?: 5, ExtrasMode.valueOf(p[stringPreferencesKey("extras")] ?: "REBOWL"), p[intPreferencesKey("widePenalty")] ?: 1, p[intPreferencesKey("noBallPenalty")] ?: 1)) }
+    suspend fun save(p: Preferences) { context.preferences.edit { it[stringPreferencesKey("theme")] = p.theme; it[booleanPreferencesKey("dynamic")] = p.dynamic; it[booleanPreferencesKey("haptics")] = p.haptics; it[booleanPreferencesKey("awake")] = p.awake; it[intPreferencesKey("overs")] = p.rules.overs; it[intPreferencesKey("wickets")] = p.rules.wickets; it[stringPreferencesKey("extras")] = p.rules.extras.name; it[intPreferencesKey("widePenalty")] = p.rules.widePenalty; it[intPreferencesKey("noBallPenalty")] = p.rules.noBallPenalty } }
 }

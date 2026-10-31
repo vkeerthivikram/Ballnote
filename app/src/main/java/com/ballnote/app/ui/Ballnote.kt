@@ -41,7 +41,7 @@ import java.util.Locale
 
 private val Light = lightColorScheme(primary = Color(0xFF4C609B), onPrimary = Color.White, primaryContainer = Color(0xFFDCE2FF), onPrimaryContainer = Color(0xFF10244F), secondaryContainer = Color(0xFFE1E3F3), background = Color(0xFFFAF8FF), surface = Color(0xFFFAF8FF))
 private val Dark = darkColorScheme(primary = Color(0xFFB4C5FF), onPrimary = Color(0xFF192E60), primaryContainer = Color(0xFF304576), onPrimaryContainer = Color(0xFFDCE2FF), secondaryContainer = Color(0xFF2B2D3B), background = Color(0xFF11131B), surface = Color(0xFF11131B))
-fun extrasLabel(mode: ExtrasMode) = when (mode) { ExtrasMode.REBOWL -> "+1, bowl again"; ExtrasMode.COUNT -> "+1, count the ball"; ExtrasMode.FINAL_OVER_REBOWL -> "Bowl again in final over" }
+fun extrasLabel(mode: ExtrasMode) = when (mode) { ExtrasMode.REBOWL -> "Bowl again"; ExtrasMode.COUNT -> "Count the ball"; ExtrasMode.FINAL_OVER_REBOWL -> "Bowl again in final over" }
 internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).format(Date(time))
 
 @Composable fun Ballnote(vm: AppModel) {
@@ -67,6 +67,7 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
     val busy by vm.busy.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val deleted by vm.deleted.collectAsStateWithLifecycle()
+    val overCue by vm.overCue.collectAsStateWithLifecycle()
     var route by rememberSaveable { mutableStateOf("Matches") }
     var gameId by rememberSaveable { mutableStateOf<String?>(null) }
     var rematchId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -86,7 +87,7 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
     val s = if (g != null) l.score(g) else null
     LaunchedEffect(selected) { selected?.let { gameId = it; route = "Live" } }
     LaunchedEffect(route) {
-        if (route !in listOf("Matches", "Settings", "New match", "Live", "Match details")) route = "Matches"
+        if (route !in listOf("Matches", "Competitions", "Settings", "New match", "Live", "Match details")) route = "Matches"
         if (route != "Matches") { choosing = false; chosen = emptyList() }
     }
     LaunchedEffect(l?.games) {
@@ -99,12 +100,13 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
             if (response == SnackbarResult.ActionPerformed) vm.undoDeletion(event.id) else vm.dismissDeletion(event.id)
         }
     }
+    LaunchedEffect(overCue) { overCue?.let { if(prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress); snackbar.showSnackbar(it); vm.overCue.value=null } }
     LaunchedEffect(error) { if (error != null && snackbar.showSnackbar(error!!, "Retry", duration = SnackbarDuration.Indefinite) == SnackbarResult.ActionPerformed) vm.retry() }
     LaunchedEffect(fileMessage) { fileMessage?.let { snackbar.showSnackbar(it); fileMessage = null } }
     val view = LocalView.current
     DisposableEffect(route, prefs.awake) { view.keepScreenOn = route == "Live" && prefs.awake; onDispose { view.keepScreenOn = false } }
     val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri -> if (uri != null && l != null) scope.launch {
-        runCatching { withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri)?.use { it.write(json.encodeToString(Backup(teams = l.teams, matches = l.games, deliveries = l.balls)).toByteArray()) } ?: error("Could not open backup destination.") } }.onSuccess { fileMessage = "Backup saved" }.onFailure { fileMessage = "Backup failed: ${it.message}" }
+        runCatching { withContext(Dispatchers.IO) { context.contentResolver.openOutputStream(uri)?.use { it.write(json.encodeToString(Backup(teams = l.teams, matches = l.games, deliveries = l.balls, competitions = l.competitions)).toByteArray()) } ?: error("Could not open backup destination.") } }.onSuccess { fileMessage = "Backup saved" }.onFailure { fileMessage = "Backup failed: ${it.message}" }
     } }
     val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) scope.launch {
         runCatching { withContext(Dispatchers.IO) {
@@ -113,9 +115,9 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
         } }.onSuccess { pendingBackup = it }.onFailure { fileMessage = "Cannot restore: ${it.message}" }
     } }
     fun back() { route = "Matches"; vm.selected.value = null }
-    BackHandler(route !in listOf("Matches", "Settings")) { back() }
+    BackHandler(route !in listOf("Matches", "Competitions", "Settings")) { back() }
     BackHandler(route == "Matches" && choosing) { choosing = false; chosen = emptyList() }
-    val root = route in listOf("Matches", "Settings")
+    val root = route in listOf("Matches", "Competitions", "Settings")
     val pageScroll = remember(route, gameId) { ScrollState(0) }
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
@@ -126,11 +128,12 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
                 if (choosing) IconButton(onClick = { vm.deleteMatches(chosen.toSet()); choosing = false; chosen = emptyList() }, enabled = chosen.isNotEmpty() && !busy) { Icon(Icons.Outlined.Delete, "Delete selected matches") }
             }
         }) },
-        bottomBar = { if (root) NavigationBar { listOf("Matches", "Settings").forEach { label -> NavigationBarItem(selected = route == label, onClick = { route = label }, icon = { Icon(if (label == "Settings") Icons.Outlined.Settings else Icons.Outlined.DateRange, label) }, label = { Text(label) }) } } }
+        bottomBar = { if (root) NavigationBar { listOf("Matches", "Competitions", "Settings").forEach { label -> NavigationBarItem(selected = route == label, onClick = { route = label }, icon = { Icon(if (label == "Settings") Icons.Outlined.Settings else Icons.Outlined.DateRange, label) }, label = { Text(label) }) } } }
     ) { padding ->
         if (l == null) { Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) { if (error == null) CircularProgressIndicator() else Text("Could not open saved data. Use Retry below.") }; return@Scaffold }
-        Column(Modifier.padding(padding).fillMaxSize().verticalScroll(pageScroll).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(if (route == "Live") 8.dp else 16.dp)) {
+        Column(Modifier.padding(padding).fillMaxSize().imePadding().verticalScroll(pageScroll).padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(if (route == "Live") 8.dp else 16.dp)) {
             when(route) {
+                "Competitions" -> CompetitionScreen(l, vm, busy)
                 "Matches" -> {
                     if (choosing) TextButton(onClick = { chosen = if (chosen.size == l.games.size) emptyList() else l.games.map { it.id } }) { Text(if (chosen.size == l.games.size) "Deselect all" else "Select all") }
                     else Button(onClick = { rematchId = null; route = "New match" }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Icon(Icons.Outlined.Add, null); Spacer(Modifier.width(8.dp)); Text("New match") }
@@ -149,7 +152,7 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
                 "Match details" -> if (g != null && s != null) {
                     Text("${g.nameA} vs ${g.nameB}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text("${date(g.created)} · ${g.rules.overs} overs · ${g.rules.wickets} wickets")
-                    Text(extrasLabel(g.rules.extras), style = MaterialTheme.typography.bodyMedium)
+                    Text("Wide +${g.rules.widePenalty} · No-ball +${g.rules.noBallPenalty} · ${extrasLabel(g.rules.extras)}", style = MaterialTheme.typography.bodyMedium)
                     Text(s.result, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (!s.finished) Button(onClick = { vm.open(g) }) { Text("Resume") }
@@ -159,6 +162,7 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
                     listOf(1 to s.first, 2 to s.second).filter { it.first == 1 || g.chaseStarted }.forEach { (number, inning) ->
                         HorizontalDivider(); Text("${if (number == 1) g.nameA else g.nameB}  ${inning.runs}/${inning.wickets}", style = MaterialTheme.typography.titleLarge)
                         Text("${inning.overs} overs${if (inning.early) " · ended early" else ""}")
+                        Text(inning.recap)
                         if (inning.timeline.isNotEmpty()) Text("Tap a delivery to edit it.", style = MaterialTheme.typography.bodySmall)
                         inning.oversBreakdown.forEach { over -> OverHistory(over) { if (!busy) editor = it } }
                         if (inning.timeline.isEmpty()) Text("No deliveries yet", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -187,7 +191,7 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
             Spacer(Modifier.height(12.dp))
         }
     }
-    editor?.let { d -> DeliverySheet(d, busy, dismiss = { editor = null }, save = { updated ->
+    editor?.let { d -> DeliverySheet(d, g?.rules ?: prefs.rules, busy, dismiss = { editor = null }, save = { updated ->
         if (d.sequence < 0) vm.record(d.matchId, updated.kind, updated.runs, updated.wicket)
         else if (g != null) correction = Scoring.preview(g, ds, d.id, updated)
         editor = null
@@ -218,6 +222,7 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
     var a by rememberSaveable { mutableStateOf(previous?.nameA ?: "") }
     var b by rememberSaveable { mutableStateOf(previous?.nameB ?: "") }
     var overs by rememberSaveable { mutableStateOf((previous?.rules ?: defaults).overs.toString()) }; var wickets by rememberSaveable { mutableStateOf((previous?.rules ?: defaults).wickets.toString()) }
+    var penalties by remember { mutableStateOf(previous?.rules ?: defaults) }
     var mode by rememberSaveable { mutableStateOf((previous?.rules ?: defaults).extras.name) }
     Text("Set your rules. Then just play.", style = MaterialTheme.typography.headlineSmall)
     OutlinedTextField(a, { if (it.length <= 40) a = it }, label = { Text("Batting first") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -226,14 +231,17 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { OutlinedTextField(overs, { if (it.length <= 2) overs = it.filter(Char::isDigit) }, label = { Text("Overs (1–50)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f)); OutlinedTextField(wickets, { if (it.length <= 2) wickets = it.filter(Char::isDigit) }, label = { Text("Wickets (1–20)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f)) }
     Text("Wides and no-balls", style = MaterialTheme.typography.titleMedium)
     ExtrasMode.entries.forEach { m -> Row(Modifier.fillMaxWidth().clickable { mode = m.name }, verticalAlignment = Alignment.CenterVertically) { RadioButton(mode == m.name, { mode = m.name }); Text(extrasLabel(m)) } }
+    Penalties(penalties) { penalties=it }
     val valid = a.isNotBlank() && b.isNotBlank() && !a.trim().equals(b.trim(), true) && (overs.toIntOrNull() ?: 0) in 1..50 && (wickets.toIntOrNull() ?: 0) in 1..20
-    Button(enabled = valid && !busy, onClick = { create(a.trim(), b.trim(), MatchRules(overs.toInt(), wickets.toInt(), ExtrasMode.valueOf(mode))) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Start match") }
+    Button(enabled = valid && !busy, onClick = { create(a.trim(), b.trim(), MatchRules(overs.toInt(), wickets.toInt(), ExtrasMode.valueOf(mode), penalties.widePenalty, penalties.noBallPenalty)) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Start match") }
 }
 
 @Composable private fun LiveScore(g: Game, s: Score, busy: Boolean, failed: Boolean, record: (Kind, Int, Boolean) -> Unit, more: () -> Unit, undo: () -> Unit, chase: () -> Unit, details: () -> Unit, undoEnabled: Boolean) {
     val current = if (g.chaseStarted) s.second else s.first
+    var large by rememberSaveable { mutableStateOf(false) }
+    if(large) LargeScoreboard(g,s) { large=false }
     val playing = s.status == Status.FIRST || s.status == Status.CHASE
-    Surface(color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, shape = RoundedCornerShape(28.dp)) {
+    Surface(onClick={large=true}, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, shape = RoundedCornerShape(28.dp)) {
         Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(if (g.chaseStarted) g.nameB else g.nameA, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(if (g.chaseStarted) "2nd innings" else "1st innings", style = MaterialTheme.typography.bodySmall)
@@ -268,8 +276,8 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
         }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(onClick = { record(Kind.NORMAL, 0, true) }, enabled = !busy, contentPadding = PaddingValues(4.dp), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Wicket", color = MaterialTheme.colorScheme.error) }
-            OutlinedButton(onClick = { record(Kind.WIDE, 0, false) }, enabled = !busy, contentPadding = PaddingValues(4.dp), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Wide +1") }
-            OutlinedButton(onClick = { record(Kind.NO_BALL, 0, false) }, enabled = !busy, contentPadding = PaddingValues(4.dp), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("No-ball +1") }
+            OutlinedButton(onClick = { record(Kind.WIDE, 0, false) }, enabled = !busy, contentPadding = PaddingValues(4.dp), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Wide +${g.rules.widePenalty}") }
+            OutlinedButton(onClick = { record(Kind.NO_BALL, 0, false) }, enabled = !busy, contentPadding = PaddingValues(4.dp), modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("No-ball +${g.rules.noBallPenalty}") }
         }
     }
     if (s.status == Status.INTERVAL) Button(onClick = chase, enabled = !busy, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Start chase · target ${s.target}") }
@@ -281,14 +289,14 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
     }
 }
 
-@Composable private fun DeliverySheet(d: Delivery, busy: Boolean, dismiss: () -> Unit, save: (Delivery) -> Unit, delete: (() -> Unit)?) {
+@Composable private fun DeliverySheet(d: Delivery, rules: MatchRules, busy: Boolean, dismiss: () -> Unit, save: (Delivery) -> Unit, delete: (() -> Unit)?) {
     var kind by remember(d.id) { mutableStateOf(d.kind) }; var runs by remember(d.id) { mutableStateOf(d.runs.toString()) }; var wicket by remember(d.id) { mutableStateOf(d.wicket) }
     ModalBottomSheet(onDismissRequest = dismiss) { Column(Modifier.verticalScroll(rememberScrollState()).imePadding().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Text(if (delete == null) "More ways to score" else "Edit delivery", style = MaterialTheme.typography.headlineSmall)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { Kind.entries.forEach { k -> FilterChip(selected = kind == k, onClick = { kind = k }, label = { Text(when(k) { Kind.NORMAL -> "Normal"; Kind.WIDE -> "Wide"; Kind.NO_BALL -> "No-ball" }) }) } }
         OutlinedTextField(runs, { if (it.length <= 2) runs = it.filter(Char::isDigit) }, label = { Text(if (kind == Kind.NORMAL) "Runs (0–99)" else "Additional runs (0–99)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
         Toggle("Wicket", "Record the outcome agreed on the turf", wicket) { wicket = it }
-        Text("${(runs.toIntOrNull() ?: 0) + if (kind == Kind.NORMAL) 0 else 1} runs${if (wicket) " + wicket" else ""} · one recorded delivery", style = MaterialTheme.typography.titleMedium)
+        Text("${(runs.toIntOrNull() ?: 0) + when(kind) { Kind.NORMAL -> 0; Kind.WIDE -> rules.widePenalty; Kind.NO_BALL -> rules.noBallPenalty }} runs${if (wicket) " + wicket" else ""} · one recorded delivery", style = MaterialTheme.typography.titleMedium)
         Button(onClick = { save(d.copy(kind = kind, runs = runs.toInt(), wicket = wicket)) }, enabled = !busy && runs.toIntOrNull() in 0..99, modifier = Modifier.fillMaxWidth()) { Text(if (delete == null) "Record delivery" else "Preview correction") }
         delete?.let { TextButton(onClick = it, enabled = !busy) { Text("Delete delivery…", color = MaterialTheme.colorScheme.error) } }
         Spacer(Modifier.height(16.dp))
