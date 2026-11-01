@@ -41,7 +41,7 @@ Tap a fixture and choose who bats first. Scores save automatically and update th
 
 Use **Generate finals** after completing league fixtures. Tied knockouts can be replayed or resolved with a recorded organiser decision and reason. Withdrawn teams cannot start new fixtures; resolve those fixtures with decisions or reinstate the team. Reset knockout rounds before making a correction that changes qualified teams or participants in an already scored or decided later fixture. Resets and replays retain earlier match records in match history. Deleting a competition also retains its recorded matches.
 
-Share the table, fixtures and results as one image. Competition data is included in exported backups. Version 1 backups can still be imported; newer exports require this updated app.
+Share the table, fixtures and results as one image. Competition data is included in exported backups. Version 1 and 2 backups can still be imported; newer exports require this updated app.
 
 ## Scoring additions
 
@@ -50,6 +50,16 @@ Choose **+1 or +2** penalties independently for wides and no-balls. These are se
 A completed over produces a short message and a distinct vibration when haptics are enabled. Tap the score panel to open the large scoreboard; rotate the phone for landscape and use Back to scoring to return. The large scoreboard keeps its screen awake.
 
 Match details includes an automatic recap: scoreless non-wicket deliveries, extras, recorded fours and sixes, and the highest-scoring over. Fours and sixes mean recorded run outcomes, including no-ball batting runs; the app does not distinguish a boundary from four or six runs completed by running. Recaps update after corrections and undo.
+
+## Turf session timers and live snapshots
+
+On the scoring screen, tap **Match timer** in the toolbar to start a booking countdown. Competition details has **Set tournament timer** for a countdown covering the entire event. Timers are optional and start off by default. You can use a match timer only, a tournament timer only, both, or neither. Setting or stopping one does not change the other. A fixture can have its own timer while also showing its tournament's remaining time. Both appear in the large scoreboard.
+
+Choose a duration from 1–720 minutes, pause/resume, add ten minutes, restart, or stop a timer. Time keeps running between innings and fixtures; reaching zero does not end play or change a result. Deadlines and paused time save on the phone and are included in backups, so closing the app does not reset them. Timers starting at ten minutes or less skip the ten-minute warning.
+
+The optional ten-minute warning and expiry notice appear in the app and can also use Android notifications. On Android 13 or later, choose **Enable background notifications** in the timer dialog to allow them. Background reminders use inexact alarms and may be delayed by Android battery saving; the displayed countdown is calculated from the saved deadline. Reminders are rescheduled when the app opens and after a phone restart. [Android alarm behaviour](https://developer.android.com/develop/background-work/services/alarms)
+
+Tap **Share live score** in the scoring toolbar at any point, including the innings break. Android's share sheet receives an image and text containing the captured score, innings status, chase requirement and local capture time. Each snapshot has its own image file; later deliveries or shares do not change an earlier snapshot. Sharing prepares the snapshot locally and lets you choose the destination.
 
 ## Backups and privacy
 

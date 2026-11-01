@@ -94,6 +94,7 @@ import com.ballnote.app.domain.*
     var reason by remember {mutableStateOf("")}; var action by remember {mutableStateOf<String?>(null)}
     TextButton(onClick=back){Text("All competitions")}
     Text(c.name,style=MaterialTheme.typography.headlineMedium)
+    TimerPanel("tournament timer",c.timer,busy,TimerScope.COMPETITION,c.id,vm)
     Text(c.format.title); Text(Competitions.headline(c,l.games,l.balls),style=MaterialTheme.typography.titleLarge)
     OutlinedButton(onClick={
         val text=competitionText(c,l)

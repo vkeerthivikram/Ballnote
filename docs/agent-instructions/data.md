@@ -4,9 +4,11 @@ Read this guide before changing persistence, serialized models, backup import/ex
 
 ## Compatibility requirements
 
-- Preserve existing matches and import compatibility with version 1 backups. Inspect the current Room and backup versions in `Storage.kt` before changing their formats.
+- Preserve existing matches and import compatibility with version 1 and 2 backups. Inspect the current Room and backup versions in `Storage.kt` before changing their formats.
 - Provide explicit Room migrations and commit the generated schema when the database structure changes. Do not use destructive migration as an upgrade strategy or rewrite historical schema files.
 - Give new serialized fields compatible defaults where appropriate. Serialized names, enum values and IDs are persisted contracts.
 - Validate imported data and cross-references before replacing anything. Restore is a confirmed, atomic replacement of match/competition data; preferences are stored separately.
 - Keep match/fixture creation and related writes transactional. Preserve deletion undo and retry behaviour.
 - Android cloud backup/device transfer are disabled. Manual export is the recovery path; do not clear real user data to resolve a development problem.
+- Timer deadlines, paused remaining time and delivered-alert flags are persisted in match/competition JSON. Adding these fields does not change Room tables. Keep alert claims transactional so a foreground tick and background alarm cannot deliver the same warning twice. Validate timer state during backup restore.
+- An absent timer is represented by `null` independently on each match and competition. Preserve that absence through creation, restore, rematches and replay; never infer or copy an individual timer from its tournament.

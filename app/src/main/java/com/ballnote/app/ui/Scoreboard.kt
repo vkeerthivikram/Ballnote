@@ -23,7 +23,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.ballnote.app.domain.*
 
-@Composable internal fun LargeScoreboard(g: Game,s: Score,close:()->Unit) {
+@Composable internal fun LargeScoreboard(g: Game,s: Score,timers: List<TimerRef> = emptyList(),close:()->Unit) {
     Dialog(onDismissRequest=close,properties=DialogProperties(usePlatformDefaultWidth=false,decorFitsSystemWindows=false)) {
         val view=LocalView.current
         DisposableEffect(view) {view.keepScreenOn=true;onDispose {view.keepScreenOn=false}}
@@ -37,6 +37,8 @@ import com.ballnote.app.domain.*
                 Text("${inning.overs} / ${g.rules.overs} overs",style=MaterialTheme.typography.headlineMedium)
                 Text(s.result,style=MaterialTheme.typography.headlineSmall)
                 if(g.chaseStarted) Text("Target ${s.target}",style=MaterialTheme.typography.titleLarge)
+                val now=sessionTime()
+                timers.forEach {Text("${if(it.scope==TimerScope.MATCH) "Match" else "Tournament"} · ${timerStatus(it.timer,now)}")}
                 Button(onClick=close) {Text("Back to scoring")}
             }
         }

@@ -11,7 +11,7 @@ fun newId(): String = UUID.randomUUID().toString()
 }
 // Retained for v1 database and backup compatibility. New matches use independent side IDs.
 @Serializable data class Team(val id: String = newId(), val name: String, val archived: Boolean = false)
-@Serializable data class Game(val id: String = newId(), val teamA: String, val teamB: String, val nameA: String, val nameB: String, val rules: MatchRules = MatchRules(), val created: Long = System.currentTimeMillis(), val opened: Long = created, val firstClosed: Boolean = false, val chaseStarted: Boolean = false, val abandoned: Boolean = false)
+@Serializable data class Game(val id: String = newId(), val teamA: String, val teamB: String, val nameA: String, val nameB: String, val rules: MatchRules = MatchRules(), val created: Long = System.currentTimeMillis(), val opened: Long = created, val firstClosed: Boolean = false, val chaseStarted: Boolean = false, val abandoned: Boolean = false, val timer: SessionTimer? = null)
 @Serializable data class Delivery(val id: String = newId(), val matchId: String, val innings: Int, val sequence: Int, val kind: Kind = Kind.NORMAL, val runs: Int = 0, val wicket: Boolean = false, val penalty: Int = 1) {
     val total: Int get() = runs + if (kind == Kind.NORMAL) 0 else penalty
     val label: String get() = (when (kind) { Kind.NORMAL -> if (wicket && runs == 0) "W" else "$runs"; Kind.WIDE -> "Wd${if (runs > 0) "+$runs" else ""}"; Kind.NO_BALL -> "Nb${if (runs > 0) "+$runs" else ""}" }) + if (wicket && (kind != Kind.NORMAL || runs > 0)) "+W" else ""

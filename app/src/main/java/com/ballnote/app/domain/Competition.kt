@@ -17,10 +17,11 @@ import kotlinx.serialization.Serializable
     val rules: MatchRules = MatchRules(), val legs: Int = 1, val matchCount: Int = 3,
     val bestOf: Boolean = false, val openEnded: Boolean = false, val groups: Int = 2, val qualifiers: Int = 2,
     val iplPlayoffs: Boolean = false, val fixtures: List<Fixture> = emptyList(), val lockedSeeds: List<String> = emptyList(),
-    val finalsEnabled: Boolean = true, val closed: Boolean = false, val withdrawn: Set<String> = emptySet(), val created: Long = System.currentTimeMillis()
+    val finalsEnabled: Boolean = true, val closed: Boolean = false, val withdrawn: Set<String> = emptySet(), val created: Long = System.currentTimeMillis(), val timer: SessionTimer? = null
 ) {
     fun validate() {
         rules.validate()
+        timer?.validate()
         require(name.isNotBlank() && name.length <= 80 && teams.size in 2..16) { "Use a name and 2–16 teams." }
         require(teams.map { it.id }.distinct().size == teams.size && teams.map { it.name.trim().lowercase() }.distinct().size == teams.size && teams.all { it.id.isNotBlank() && it.name.isNotBlank() && it.name.length <= 40 }) { "Use distinct team names." }
         require((format != Format.BILATERAL || teams.size == 2) && (format != Format.TRI || teams.size == 3)) { "Bilateral needs two teams; tri-series needs three." }

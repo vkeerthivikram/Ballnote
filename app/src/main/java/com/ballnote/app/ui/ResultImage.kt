@@ -17,7 +17,8 @@ import androidx.core.graphics.withTranslation
 import com.ballnote.app.domain.*
 import java.io.File
 
-internal fun resultFile(context: Context, g: Game, s: Score): Uri {
+internal fun resultFile(context: Context, g: Game, s: Score, capturedAt: Long? = null): Uri {
+    val snapshot=capturedAt?.let {LiveSnapshot(g,s,it)}
     val bitmap = createBitmap(1080, 1080)
     try {
         val canvas = Canvas(bitmap)
@@ -39,8 +40,8 @@ internal fun resultFile(context: Context, g: Game, s: Score): Uri {
                 text("${innings.overs} overs", 720f, top + 156f, 34f, ink, 260f)
             } else text("Did not bat", 96f, top + 158f, 44f, ink)
         }
-        text("Ballnote", 64f, 108f, 52f, Color.WHITE)
-        text(date(g.created), 64f, 164f, 30f, Color.rgb(180, 197, 255))
+        text(if(snapshot==null) "Ballnote" else "Ballnote · SCORE SNAPSHOT", 64f, 108f, 52f, Color.WHITE)
+        text(snapshot?.let {captureTime(it.capturedAt)} ?: date(g.created), 64f, 164f, 30f, Color.rgb(180, 197, 255))
         panel(220f, g.nameA, s.first, s.winner == g.teamA, true)
         panel(464f, g.nameB, s.second, s.winner == g.teamB, g.chaseStarted)
         paint.color = when {
@@ -50,16 +51,28 @@ internal fun resultFile(context: Context, g: Game, s: Score): Uri {
             else -> Color.rgb(48, 69, 118)
         }
         canvas.drawRoundRect(64f, 736f, 1016f, 958f, 28f, 28f, paint)
-        text(statusLabel(s).uppercase(), 96f, 784f, 24f, Color.rgb(225, 233, 255))
+        text(snapshot?.label ?: statusLabel(s).uppercase(), 96f, 784f, 24f, Color.rgb(225, 233, 255))
         val resultPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = 42f; typeface = paint.typeface }
-        val layout = StaticLayout.Builder.obtain(s.result, 0, s.result.length, resultPaint, 856)
+        val headline=snapshot?.let { if(g.chaseStarted) "Target ${s.target} · ${it.headline}" else it.headline } ?: s.result
+        val layout = StaticLayout.Builder.obtain(headline, 0, headline.length, resultPaint, 856)
             .setAlignment(Layout.Alignment.ALIGN_NORMAL).setIncludePad(false).setMaxLines(3)
             .setEllipsize(TextUtils.TruncateAt.END).build()
         canvas.withTranslation(96f, 812f) { layout.draw(this) }
         text("Tap. Score. Play.", 64f, 1032f, 28f, Color.rgb(180, 197, 255))
         val dir = File(context.cacheDir, "results").apply { mkdirs() }
-        val file = File(dir, "${g.id}.png")
+        val file = File(dir, "${g.id}-${newId()}.png")
         file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
         return FileProvider.getUriForFile(context, "${context.packageName}.files", file)
     } finally { bitmap.recycle() }
+}
+
+internal fun captureTime(time: Long) = java.text.SimpleDateFormat("d MMM yyyy · HH:mm:ss",java.util.Locale.ENGLISH).format(java.util.Date(time))
+internal fun shareSnapshot(context: Context,uri: Uri,snapshot: LiveSnapshot) {
+    val intent=android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+        type="image/png";putExtra(android.content.Intent.EXTRA_STREAM,uri)
+        putExtra(android.content.Intent.EXTRA_TEXT,snapshot.text+"\n"+captureTime(snapshot.capturedAt)+" · Ballnote")
+        clipData=android.content.ClipData.newRawUri("Score snapshot",uri)
+        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(android.content.Intent.createChooser(intent,"Share live score"))
 }

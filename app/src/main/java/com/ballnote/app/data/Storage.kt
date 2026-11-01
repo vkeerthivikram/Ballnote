@@ -45,14 +45,15 @@ data class Library(val teams: List<Team> = emptyList(), val games: List<Game> = 
     fun deliveries(id: String) = balls.filter { it.matchId == id }
     fun score(g: Game) = Scoring.score(g, deliveries(g.id))
 }
-@Serializable data class Backup(val formatVersion: Int = 2, val teams: List<Team>, val matches: List<Game>, val deliveries: List<Delivery>, val competitions: List<Competition> = emptyList()) {
+@Serializable data class Backup(val formatVersion: Int = 3, val teams: List<Team>, val matches: List<Game>, val deliveries: List<Delivery>, val competitions: List<Competition> = emptyList()) {
     fun validate() {
-        require(formatVersion in 1..2) { "This backup version is not supported." }
+        require(formatVersion in 1..3) { "This backup version is not supported." }
         require(teams.map { it.id }.distinct().size == teams.size && matches.map { it.id }.distinct().size == matches.size && deliveries.map { it.id }.distinct().size == deliveries.size) { "Duplicate IDs in backup." }
         require(teams.all { it.id.isNotBlank() && it.name.isNotBlank() && it.name.length <= 40 }) { "Invalid team in backup." }
         val teamIds = teams.map { it.id }.toSet(); val matchIds = matches.map { it.id }.toSet()
         matches.forEach { g ->
             g.rules.validate()
+            g.timer?.validate()
             require(g.id.isNotBlank() && g.teamA in teamIds && g.teamB in teamIds && g.teamA != g.teamB && g.nameA.isNotBlank() && g.nameB.isNotBlank()) { "Invalid match in backup." }
             val ds = deliveries.filter { it.matchId == g.id }
             require(g.chaseStarted || ds.none { it.innings == 2 }) { "Chase deliveries without an innings." }
@@ -103,6 +104,26 @@ class Repository(context: Context, databaseName: String = "ballnote.db") {
     }
     suspend fun competition(c: Competition) { c.validate(); dao.competition(CompetitionRow(c.id,json.encodeToString(c))) }
     suspend fun fixture(c: Competition, g: Game) = db.withTransaction { create(g); competition(c) }
+    suspend fun changeTimer(scope: TimerScope, id: String, change: (SessionTimer?) -> SessionTimer?) = db.withTransaction {
+        val l=snapshot()
+        if(scope==TimerScope.MATCH) {
+            val g=l.games.first {it.id==id}; val timer=change(g.timer);timer?.validate()
+            if(timer!=g.timer) save(g.copy(timer=timer),l.deliveries(id))
+        } else {
+            val c=l.competitions.first {it.id==id};val timer=change(c.timer);timer?.validate()
+            if(timer!=c.timer) competition(c.copy(timer=timer))
+        }
+    }
+    suspend fun claimTimerAlert(ref: TimerRef, now: Long): TimerAlert? = db.withTransaction {
+        var claimed: TimerAlert? = null
+        val current=snapshot().sessionTimers().find {it.key==ref.key}
+        if(current?.timer?.id==ref.timer.id) changeTimer(ref.scope,ref.ownerId) { timer ->
+            val alert=timer?.alert(now)
+            claimed=alert
+            when(alert) {TimerAlert.EXPIRED->timer!!.copy(expiryDelivered=true,warningDelivered=true);TimerAlert.TEN_MINUTES->timer!!.copy(warningDelivered=true);null->timer}
+        }
+        claimed
+    }
     suspend fun removeCompetition(id: String) { dao.deleteCompetition(id) }
     suspend fun restore(b: Backup) {
         b.validate()
@@ -145,3 +166,5 @@ class Settings(private val context: Context) {
     val values = context.preferences.data.map { p -> Preferences(p[stringPreferencesKey("theme")] ?: "System", p[booleanPreferencesKey("dynamic")] ?: false, p[booleanPreferencesKey("haptics")] ?: true, p[booleanPreferencesKey("awake")] ?: true, MatchRules(p[intPreferencesKey("overs")] ?: 6, p[intPreferencesKey("wickets")] ?: 5, ExtrasMode.valueOf(p[stringPreferencesKey("extras")] ?: "REBOWL"), p[intPreferencesKey("widePenalty")] ?: 1, p[intPreferencesKey("noBallPenalty")] ?: 1)) }
     suspend fun save(p: Preferences) { context.preferences.edit { it[stringPreferencesKey("theme")] = p.theme; it[booleanPreferencesKey("dynamic")] = p.dynamic; it[booleanPreferencesKey("haptics")] = p.haptics; it[booleanPreferencesKey("awake")] = p.awake; it[intPreferencesKey("overs")] = p.rules.overs; it[intPreferencesKey("wickets")] = p.rules.wickets; it[stringPreferencesKey("extras")] = p.rules.extras.name; it[intPreferencesKey("widePenalty")] = p.rules.widePenalty; it[intPreferencesKey("noBallPenalty")] = p.rules.noBallPenalty } }
 }
+
+fun Library.sessionTimers(): List<TimerRef> = games.mapNotNull {g->g.timer?.let {TimerRef(TimerScope.MATCH,g.id,g.nameA+" vs "+g.nameB,it)}} + competitions.mapNotNull {c->c.timer?.let {TimerRef(TimerScope.COMPETITION,c.id,c.name,it)}}

@@ -2,14 +2,22 @@
 
 ## Unreleased
 
+## [1.2.0] - 2026-10-31
+
 ### Added
 
+- Optional, independent match and tournament turf session timers with pause/resume, extension, ten-minute warnings and expiry notices. Use match-only, tournament-only, both, or neither; nothing starts automatically. Timers persist across app restarts and support optional background notifications.
+- Timestamped live score image/text snapshots from the scoring toolbar, with immutable files for each capture.
 - Independent +1/+2 wide and no-ball penalties, saved with each match.
 - Over-completion messages and haptics, a large scoreboard, and automatic innings recaps.
 - Bilateral and open-ended series, tri-series, leagues, knockouts, league playoffs, and group-stage tournaments.
 - Fixture previews and shuffling, points tables and NRR, qualification, byes, organiser decisions, replay, withdrawals, and competition image sharing.
 - Protection against corrections and deletions changing participants in later competition rounds.
-- Room version 2 migration and backup version 2 with competition data; version 1 backups remain importable.
+
+### Compatibility
+
+- Room version 2 migration adds competition storage while preserving existing matches.
+- Backup version 3 includes competition and timer state and continues to import version 1 and 2 backups.
 
 ## [1.1.0] - 2026-10-31
 
@@ -45,5 +53,6 @@
 - Light, dark and system appearance, with optional wallpaper colours on Android 12 and later.
 - Local result-image sharing and manual JSON backup and restore.
 
+[1.2.0]: https://github.com/vkeerthivikram/Ballnote/releases/tag/v1.2.0
 [1.1.0]: https://github.com/vkeerthivikram/Ballnote/releases/tag/v1.1.0
 [1.0.0]: https://github.com/vkeerthivikram/Ballnote/releases/tag/v1.0.0

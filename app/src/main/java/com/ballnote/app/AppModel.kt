@@ -7,6 +7,8 @@ import com.ballnote.app.data.*
 import com.ballnote.app.domain.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import com.ballnote.app.timers.TimerAlerts
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -17,6 +19,8 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     private val settings = Settings(app)
     val library = MutableStateFlow<Library?>(null)
     val preferences = settings.values.stateIn(viewModelScope, SharingStarted.Eagerly, Preferences())
+    val timerCue = MutableStateFlow<String?>(null)
+    private var scheduledTimers = emptyList<TimerRef>()
     val overCue = MutableStateFlow<String?>(null)
     val error = MutableStateFlow<String?>(null)
     val busy = MutableStateFlow(false)
@@ -24,7 +28,9 @@ class AppModel(app: Application) : AndroidViewModel(app) {
     val deleted = MutableStateFlow<DeletedMatches?>(null)
     private val lock = Mutex()
     private var retry: (suspend () -> Unit)? = null
-    init { viewModelScope.launch { repo.library.catch { error.value = "Could not open saved data: ${it.message}" }.collect { data -> if (library.value == null) selected.value = data.games.filter { !data.score(it).finished }.maxByOrNull { it.opened }?.id; library.value = data } } }
+    init { viewModelScope.launch { repo.library.catch { error.value = "Could not open saved data: ${it.message}" }.collect { data -> if (library.value == null) selected.value = data.games.filter { !data.score(it).finished }.maxByOrNull { it.opened }?.id; library.value = data; val timers=data.sessionTimers(); runCatching {TimerAlerts.sync(app,scheduledTimers,timers)}.onFailure {android.util.Log.w("BallnoteTimer","Could not schedule background reminders",it)}; scheduledTimers=timers } }
+        viewModelScope.launch { while(true) { delay(1000); val now=System.currentTimeMillis(); library.value?.sessionTimers()?.filter {it.timer.alert(now)!=null}?.forEach {ref-> lock.withLock { try {TimerAlerts.deliver(app,repo,ref,now)?.let {timerCue.value=it}} catch(e: Exception) {if(e is kotlinx.coroutines.CancellationException) throw e; android.util.Log.w("BallnoteTimer","Could not process timer",e)} } } } }
+    }
     fun command(action: suspend () -> Unit) { viewModelScope.launch { lock.withLock { busy.value = true; try { action(); library.value = repo.snapshot(); retry = null; error.value = null } catch (e: Exception) { retry = action; error.value = e.message ?: "Could not save. Please retry." } finally { busy.value = false } } } }
     fun retry() { command(retry ?: { library.value = repo.snapshot() }) }
     private suspend fun current(id: String): Pair<Game, List<Delivery>> { val l = repo.snapshot(); return l.games.first { it.id == id } to l.deliveries(id) }
@@ -58,6 +64,16 @@ class AppModel(app: Application) : AndroidViewModel(app) {
         val (g, ds) = current(c.game.id)
         require(g == c.game && Scoring.score(g, ds) == c.before) { "Match changed. Preview the correction again." }
         repo.save(g, c.deliveries)
+    }
+    fun startTimer(scope: TimerScope,id: String,minutes: Int,warn: Boolean) = command {repo.changeTimer(scope,id) {SessionTimer.start(minutes,System.currentTimeMillis(),warn)}}
+    fun timerAction(scope: TimerScope,id: String,action: String) = command {
+        repo.changeTimer(scope,id) {timer-> when(action) {
+            "Stop"->null
+            "Pause"->requireNotNull(timer).pause(System.currentTimeMillis())
+            "Resume"->requireNotNull(timer).resume(System.currentTimeMillis())
+            "Extend"->requireNotNull(timer).extend(System.currentTimeMillis())
+            else->error("Unknown timer action")
+        }}
     }
     fun preferences(p: Preferences) = command { settings.save(p) }
     fun deleteMatches(ids: Set<String>) = command {

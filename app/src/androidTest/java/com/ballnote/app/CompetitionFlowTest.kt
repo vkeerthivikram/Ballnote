@@ -24,12 +24,16 @@ class CompetitionFlowTest {
         rule.onNodeWithText("Create competition").performScrollTo().performClick()
         rule.waitUntil(15000){rule.onAllNodesWithText("Device series").fetchSemanticsNodes().isNotEmpty()}
         rule.onNodeWithText("Device series").performScrollTo().performClick()
+        rule.onNodeWithText("Set tournament timer").performScrollTo().performClick()
+        rule.onNodeWithText("Start timer").performClick()
+        rule.waitUntil(10000) {rule.onAllNodesWithText("tournament timer",substring=true).fetchSemanticsNodes().isNotEmpty()}
         rule.onAllNodesWithText("Start match").onFirst().performScrollTo().performClick()
         rule.onNodeWithText("Red").performClick()
         saved()
         rule.onNodeWithText("Wide +2").performScrollTo().performClick();saved()
         rule.onNodeWithText("Over 1 · 2 runs").assertExists()
         rule.onNodeWithText("1st innings").performScrollTo().performClick()
+        rule.onNodeWithText("Tournament ·",substring=true).assertExists()
         rule.onNodeWithText("Back to scoring").assertExists().performClick()
         rule.onNodeWithText("Wicket").performScrollTo().performClick();saved()
         rule.onNodeWithText("Start chase · target 3").performScrollTo().performClick();saved()

@@ -67,6 +67,8 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
     val busy by vm.busy.collectAsStateWithLifecycle()
     val error by vm.error.collectAsStateWithLifecycle()
     val deleted by vm.deleted.collectAsStateWithLifecycle()
+    val timerCue by vm.timerCue.collectAsStateWithLifecycle()
+    var timerDialog by rememberSaveable { mutableStateOf(false) }
     val overCue by vm.overCue.collectAsStateWithLifecycle()
     var route by rememberSaveable { mutableStateOf("Matches") }
     var gameId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -100,6 +102,7 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
             if (response == SnackbarResult.ActionPerformed) vm.undoDeletion(event.id) else vm.dismissDeletion(event.id)
         }
     }
+    LaunchedEffect(timerCue) { timerCue?.let { if(prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress); snackbar.showSnackbar(it,withDismissAction=true); vm.timerCue.value=null } }
     LaunchedEffect(overCue) { overCue?.let { if(prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.LongPress); snackbar.showSnackbar(it); vm.overCue.value=null } }
     LaunchedEffect(error) { if (error != null && snackbar.showSnackbar(error!!, "Retry", duration = SnackbarDuration.Indefinite) == SnackbarResult.ActionPerformed) vm.retry() }
     LaunchedEffect(fileMessage) { fileMessage?.let { snackbar.showSnackbar(it); fileMessage = null } }
@@ -122,6 +125,10 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
     Scaffold(
         snackbarHost = { SnackbarHost(snackbar) },
         topBar = { TopAppBar(title = { Text(if (route == "Live") "Ballnote" else if (route == "Matches" && choosing) "${chosen.size} selected" else route, fontWeight = FontWeight.Bold) }, navigationIcon = { if (!root) IconButton(onClick = { back() }) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, "Back to matches") } }, actions = {
+            if (route == "Live" && g != null) {
+                IconButton(onClick={timerDialog=true}) {Icon(Icons.Outlined.DateRange,"Match timer")}
+                IconButton(onClick={ val snapshot=LiveSnapshot(g,s!!,System.currentTimeMillis()); scope.launch {runCatching {withContext(Dispatchers.IO) {resultFile(context,snapshot.game,snapshot.score,snapshot.capturedAt)}}.onSuccess {uri->shareSnapshot(context,uri,snapshot)}.onFailure {fileMessage="Could not share: ${it.message}"}} }) {Icon(Icons.Outlined.Share,"Share live score")}
+            }
             if (route == "Live" && g != null) IconButton(onClick = { route = "Match details" }) { Icon(Icons.AutoMirrored.Outlined.List, "Match details and corrections") }
             if (route == "Matches" && l?.games?.isNotEmpty() == true) {
                 TextButton(onClick = { choosing = !choosing; chosen = emptyList() }, enabled = !busy) { Text(if (choosing) "Cancel" else "Select") }
@@ -147,12 +154,18 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
                 }
                 "New match" -> Setup(rematchId?.let { id -> l.games.find { it.id == id } }, prefs.rules, busy) { a, b, rules -> vm.create(a, b, rules) }
                 "Live" -> if (g != null && s != null) {
-                    LiveScore(g, s, busy, error != null, record = { kind, runs, wicket -> if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.record(g.id, kind, runs, wicket) }, more = { editor = Delivery(matchId = g.id, innings = if (g.chaseStarted) 2 else 1, sequence = -1) }, undo = { vm.undo(g.id) }, chase = { vm.chase(g.id) }, details = { route = "Match details" }, undoEnabled = ds.isNotEmpty() || g.firstClosed || g.chaseStarted)
+                    val tournament=l.competitions.find { c->c.fixtures.any {it.matchId==g.id} }
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                        g.timer?.let {TimerChip("Match",it) {timerDialog=true}}
+                        tournament?.timer?.let {TimerPanel("tournament timer",it,busy,TimerScope.COMPETITION,tournament.id,vm)}
+                    }
+                    LiveScore(g, s, busy, error != null, record = { kind, runs, wicket -> if (prefs.haptics) haptics.performHapticFeedback(HapticFeedbackType.TextHandleMove); vm.record(g.id, kind, runs, wicket) }, more = { editor = Delivery(matchId = g.id, innings = if (g.chaseStarted) 2 else 1, sequence = -1) }, undo = { vm.undo(g.id) }, chase = { vm.chase(g.id) }, details = { route = "Match details" }, undoEnabled = ds.isNotEmpty() || g.firstClosed || g.chaseStarted, timers=l.sessionTimers().filter {it.ownerId==g.id || it.scope==TimerScope.COMPETITION && it.ownerId==tournament?.id})
                 }
                 "Match details" -> if (g != null && s != null) {
                     Text("${g.nameA} vs ${g.nameB}", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Text("${date(g.created)} · ${g.rules.overs} overs · ${g.rules.wickets} wickets")
                     Text("Wide +${g.rules.widePenalty} · No-ball +${g.rules.noBallPenalty} · ${extrasLabel(g.rules.extras)}", style = MaterialTheme.typography.bodyMedium)
+                    TimerPanel("match timer",g.timer,busy,TimerScope.MATCH,g.id,vm)
                     Text(s.result, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         if (!s.finished) Button(onClick = { vm.open(g) }) { Text("Resume") }
@@ -191,6 +204,7 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
             Spacer(Modifier.height(12.dp))
         }
     }
+    if(timerDialog && g!=null) SessionTimerDialog("match timer",g.timer,busy,TimerScope.MATCH,g.id,vm) {timerDialog=false}
     editor?.let { d -> DeliverySheet(d, g?.rules ?: prefs.rules, busy, dismiss = { editor = null }, save = { updated ->
         if (d.sequence < 0) vm.record(d.matchId, updated.kind, updated.runs, updated.wicket)
         else if (g != null) correction = Scoring.preview(g, ds, d.id, updated)
@@ -236,10 +250,10 @@ internal fun date(time: Long) = SimpleDateFormat("d MMM yyyy", Locale.ENGLISH).f
     Button(enabled = valid && !busy, onClick = { create(a.trim(), b.trim(), MatchRules(overs.toInt(), wickets.toInt(), ExtrasMode.valueOf(mode), penalties.widePenalty, penalties.noBallPenalty)) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("Start match") }
 }
 
-@Composable private fun LiveScore(g: Game, s: Score, busy: Boolean, failed: Boolean, record: (Kind, Int, Boolean) -> Unit, more: () -> Unit, undo: () -> Unit, chase: () -> Unit, details: () -> Unit, undoEnabled: Boolean) {
+@Composable private fun LiveScore(g: Game, s: Score, busy: Boolean, failed: Boolean, record: (Kind, Int, Boolean) -> Unit, more: () -> Unit, undo: () -> Unit, chase: () -> Unit, details: () -> Unit, undoEnabled: Boolean, timers: List<TimerRef> = emptyList()) {
     val current = if (g.chaseStarted) s.second else s.first
     var large by rememberSaveable { mutableStateOf(false) }
-    if(large) LargeScoreboard(g,s) { large=false }
+    if(large) LargeScoreboard(g,s,timers) { large=false }
     val playing = s.status == Status.FIRST || s.status == Status.CHASE
     Surface(onClick={large=true}, color = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer, shape = RoundedCornerShape(28.dp)) {
         Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
